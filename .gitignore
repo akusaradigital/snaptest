@@ -39,3 +39,6 @@ npm-debug.log*
 # Type declarations & build info (auto-generated)
 next-env.d.ts
 tsconfig.tsbuildinfo
+
+.vercel
+.env*
