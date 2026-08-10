@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Environment variables (contains API keys)
+.env
+.env.local
+.env*.local
+
+# Runtime secrets (API keys stored at runtime)
+.runtime_keys.json
+
+# Database & generated data
+data/
+*.db
+*.db-journal
+
+# Test output & generated scripts
+tests/results/
+tests/scripts/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Type declarations & build info (auto-generated)
+next-env.d.ts
+tsconfig.tsbuildinfo

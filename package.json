@@ -1,0 +1,44 @@
+{
+  "name": "snaptest",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "node tests/html-parser-check.mjs && node tests/unified-qa-chat-check.mjs && node tests/ticket-json-check.mjs && node tests/auth-policy-check.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "axios": "^1.7.7",
+    "css-select": "^5.2.2",
+    "domhandler": "^5.0.3",
+    "domutils": "^3.2.2",
+    "file-saver": "^2.0.5",
+    "htmlparser2": "^10.1.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^1.16.0",
+    "next": "^14.2.15",
+    "next-auth": "^5.0.0-beta.31",
+    "pdf-parse": "^2.4.5",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hot-toast": "^2.4.1",
+    "react-syntax-highlighter": "^15.5.0",
+    "sqlite": "^5.1.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/file-saver": "^2.0.7",
+    "@types/node": "^20.16.10",
+    "@types/pdf-parse": "^1.1.5",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.13",
+    "typescript": "^5.6.2"
+  }
+}
