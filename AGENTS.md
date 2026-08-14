@@ -4,17 +4,16 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 
 ## Current Tech Stack & Routing Architecture
 - **Framework**: Next.js 14 App Router. Route groups under `(dashboard)/` share a single `DashboardShell` layout; middleware + `auth()` gate every protected route.
-- **DB**: Neon PostgreSQL via `src/app/api/db.ts` and `DATABASE_URL`. Schema bootstrap is idempotent (`ensureSchema()` runs once per warm instance).
+- **DB**: Neon PostgreSQL via `src/app/api/db.ts` and `DATABASE_URL`. Schema bootstrap is idempotent (`ensureSchema()` runs once per warm instance). `src/components/DbHeartbeat.tsx` pings `/api/health` every 4 minutes while the tab is visible to reduce Neon autosuspend cold-starts — pauses when the tab is hidden so free-tier compute-hours aren't spent on idle time.
 - **Auth**: Auth.js v5 (`src/auth.ts`) — Google OAuth, JWT sessions (7-day expiry). `middleware.ts` protects all non-public routes; `src/lib/authPolicy.mjs` lists public paths.
 - **State & Keys**: All AI API keys stored in client-side `localStorage` only (ZERO server-side key storage). Keys are forwarded per request to the chosen provider.
 - **9Router Integration**: Supports local `http://localhost:20128/v1` and public tunnels (`9router_public` stored in browser).
 - **Layout & Design**: Tailwind CSS, lucide-react, unified chat interface across Test Case Agent & Issue Agent.
 
-## Core Route Structure (10 sidebar pages + landing + share)
+## Core Route Structure (9 sidebar pages + landing + share)
 - `/` — Public marketing landing page (`src/app/page.tsx`) with feature highlights, provider list, and FAQ. CTA routes to `/dashboard` when signed in, else `/login`.
 - `/login` — Google SSO sign-in with callback URL support.
 - `/dashboard` — Dashboard overview with metrics (Total Tests, Active Monitors, Team Members) & Quick Actions.
-- `/squad` — **QA Squad Orchestrator**: Multi-agent chat that plans & executes a single high-level command across specialized sub-agents (test_cases, test_data, api_test, test_planner, script_repair, coverage_check).
 - `/generate` — **Test Case Agent**: Split-view UI (Chat Feed + Input Dock on left; File Workspace with `.xlsx`, `.spec.ts`, `.feature` tabs on right).
 - `/planner` — **Test Planner**: Paste a PRD / User Story / Gherkin, get a structured test matrix (category, scenario, expected, priority, effort hours) exportable to CSV/XLSX.
 - `/ticket` — **Issue & Ticket Agent**: AI Jira Ticket Agent chat thread & auto-detection of Bug/Feature/Improvement.
@@ -46,15 +45,13 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 - Dashboard Page: `src/components/pages/DashboardPage.tsx`
 - Test Case Agent Page: `src/components/pages/GenerateChatPage.tsx`
 - Issue Ticket Agent Page: `src/components/pages/TicketPage.tsx`
-- QA Squad Page: `src/components/pages/SquadPage.tsx`
-- Test Planner Page: `src/components/pages/PlannerPage.tsx`
+- Test Planner Page: `src/components/pages/PlannerPage.tsx` (sessions persisted server-side via `agent_sessions`, `agent_type='planner'`)
 - API Test Agent Page: `src/components/pages/ApiAgentPage.tsx`
 - Test Data Generator Page: `src/components/pages/DataGenPage.tsx`
 - Executive Report Page: `src/components/pages/ReportPage.tsx`
 - On-Demand Script API: `src/app/api/generate/script/route.ts`
 - SSE Generator Stream: `src/app/api/generate/stream/route.ts`
 - Sandbox Test Runner: `src/app/api/runner/execute/route.ts` (local-only; 501 on Vercel).
-- Squad Orchestration API: `src/app/api/squad/orchestrate/route.ts`
 - DB Schema & Migrations: `src/app/api/db.ts`
 - AI Provider & Model Settings: `src/components/AISettings.tsx`
 - Auth config: `src/auth.ts`
@@ -62,7 +59,7 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 
 ## API Surface (by domain)
 - **Generation**: `generate/stream` (SSE chat), `generate/script` (on-demand scripts).
-- **Agents**: `api-agent/generate`, `planner`, `data/generate`, `ticket/generate`, `squad/orchestrate`, `report/generate`, `unified-chat/repair`.
+- **Agents**: `api-agent/generate`, `planner`, `data/generate`, `ticket/generate`, `report/generate`, `unified-chat/repair`.
 - **Tickets**: `tickets` (list/create), `tickets/[id]` (CRUD), `jira/create`, `jira/test`.
 - **Monitoring**: `monitor` (list/create), `monitor/[id]` (CRUD), `monitor/[id]/check` (selector health check).
 - **History & Sessions**: `history`, `history/[id]`, `sessions`, `sessions/[id]` (cloud session sync).
