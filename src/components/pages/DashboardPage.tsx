@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
-import { Zap, Ticket, ArrowRight, Activity, Users, Database, Globe2, Loader2, BookOpen, PieChart, Sparkles } from "lucide-react";
+import { Zap, Ticket, ArrowRight, Activity, Users, Database, Globe2, Loader2, BookOpen, PieChart } from "lucide-react";
 import { PageId } from "@/components/Sidebar";
 
 interface Metrics {
@@ -41,7 +41,6 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: PageI
   ];
 
   const ACTIONS = [
-    { page: "squad" as PageId, label: "QA Squad", desc: "Coordinate multiple QA agents from one command.", icon: <Sparkles className="h-5 w-5 text-indigo-600" /> },
     { page: "generate" as PageId, label: "Test Case Agent", desc: "Create test cases and scripts from a URL or screenshot.", icon: <Zap className="h-5 w-5 text-indigo-600" /> },
     { page: "planner" as PageId, label: "Test Planner", desc: "Turn requirements into a test matrix and effort estimate.", icon: <BookOpen className="h-5 w-5 text-emerald-600" /> },
     { page: "ticket" as PageId, label: "Issue Agent", desc: "Work through Jira and Linear tickets.", icon: <Ticket className="h-5 w-5 text-purple-600" /> },

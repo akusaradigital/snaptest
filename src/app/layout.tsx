@@ -3,6 +3,7 @@ import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "react-hot-toast";
 import Providers from "@/components/Providers";
+import DbHeartbeat from "@/components/DbHeartbeat";
 
 // Self-hosted via next/font — no render-blocking Google Fonts request in prod.
 const inter = Inter({
@@ -31,6 +32,7 @@ export default function RootLayout({
     <html lang="en" className={`h-full ${inter.variable} ${jetbrains.variable}`}>
       <body className="h-full">
         <Providers>
+        <DbHeartbeat />
         <Toaster
           position="top-right"
           toastOptions={{

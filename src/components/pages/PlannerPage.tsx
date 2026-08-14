@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { BookOpen, Download, Loader2, Send, PanelLeft, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
 import { getApiKey } from '@/lib/keys';
 import toast from 'react-hot-toast';
 
@@ -32,6 +32,9 @@ interface SessionItem {
   id: string;
   title: string;
   updatedAt: string;
+  input?: string;
+  result?: PlannerResult;
+  loaded?: boolean;
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -49,44 +52,99 @@ const PRIORITY_COLORS: Record<string, string> = {
   "Low": "bg-slate-100 text-slate-700",
 };
 
-const SESSION_KEY = 'planner-sessions';
+const AGENT_TYPE = 'planner';
+const LOCAL_FALLBACK_KEY = 'planner-sessions-fallback';
 
 export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   const [input, setInput] = useState('');
   const [refine, setRefine] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlannerResult | null>(null);
-  const [showSidebar, setShowSidebar] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const historyRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!historyOpen) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
+        setHistoryOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [historyOpen]);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [sessionSearch, setSessionSearch] = useState('');
   const [sessions, setSessions] = useState<SessionItem[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
-  // Load sessions from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SESSION_KEY);
-      if (stored) setSessions(JSON.parse(stored));
-    } catch { /* ignore */ }
-  }, []);
-
-  const persistSessions = (updated: SessionItem[]) => {
-    setSessions(updated);
-    localStorage.setItem(SESSION_KEY, JSON.stringify(updated));
+  const saveToLocalFallback = (updated: SessionItem[]) => {
+    try { localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
   };
 
-  const addSession = (title: string) => {
-    const newSession: SessionItem = {
-      id: crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`,
-      title,
-      updatedAt: new Date().toISOString(),
+  // Load sessions from server (with fallback to localStorage if offline/unauthenticated)
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/sessions?agent_type=${AGENT_TYPE}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data.items)) {
+            const items: SessionItem[] = data.items.map((it: any) => ({
+              id: it.id,
+              title: it.title || 'Untitled Plan',
+              updatedAt: it.updated_at,
+            }));
+            setSessions(items);
+            return;
+          }
+        }
+      } catch { /* fall through to local fallback */ }
+
+      try {
+        const stored = localStorage.getItem(LOCAL_FALLBACK_KEY);
+        if (stored) setSessions(JSON.parse(stored));
+      } catch { /* ignore */ }
     };
-    persistSessions([newSession, ...sessions]);
+    load();
+  }, []);
+
+  const persistSession = async (item: SessionItem) => {
+    setSessions(prev => {
+      const rest = prev.filter(s => s.id !== item.id);
+      const updated = [item, ...rest];
+      saveToLocalFallback(updated);
+      return updated;
+    });
+
+    try {
+      await fetch('/api/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: item.id,
+          agent_type: AGENT_TYPE,
+          title: item.title,
+          data_json: { input: item.input || '', result: item.result || null },
+        }),
+      });
+    } catch { /* offline: local fallback already saved above */ }
   };
 
   const deleteSession = (id: string) => {
-    persistSessions(sessions.filter(s => s.id !== id));
+    setSessions(prev => {
+      const updated = prev.filter(s => s.id !== id);
+      saveToLocalFallback(updated);
+      return updated;
+    });
+    if (activeSessionId === id) {
+      setActiveSessionId(null);
+      setResult(null);
+      setInput('');
+    }
+    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
     setDeleteConfirmId(null);
     toast.success('Session deleted');
   };
@@ -96,11 +154,52 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
     setRenameValue(s.title);
   };
 
-  const commitRename = (id: string) => {
+  const commitRename = async (id: string) => {
     if (!renameValue.trim()) { setRenamingId(null); return; }
-    persistSessions(sessions.map(s => s.id === id ? { ...s, title: renameValue.trim(), updatedAt: new Date().toISOString() } : s));
+    const trimmed = renameValue.trim();
     setRenamingId(null);
+
+    const existing = sessions.find(s => s.id === id);
+    if (!existing) return;
+
+    // Renaming a session we haven't loaded the full result for yet — fetch it first
+    // so the rename POST (which re-saves the whole record) doesn't wipe its data.
+    let base = existing;
+    if (!base.loaded && id !== activeSessionId) {
+      try {
+        const res = await fetch(`/api/sessions/${id}`);
+        if (res.ok) {
+          const detail = await res.json();
+          base = { ...base, input: detail.data?.input, result: detail.data?.result, loaded: true };
+        }
+      } catch { /* best-effort */ }
+    } else if (id === activeSessionId) {
+      base = { ...base, input, result: result || undefined };
+    }
+
+    await persistSession({ ...base, title: trimmed, updatedAt: new Date().toISOString() });
     toast.success('Session renamed');
+  };
+
+  const selectSession = async (s: SessionItem) => {
+    setActiveSessionId(s.id);
+    setHistoryOpen(false);
+    if (s.loaded) {
+      setInput(s.input || '');
+      setResult(s.result || null);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/sessions/${s.id}`);
+      if (!res.ok) throw new Error();
+      const detail = await res.json();
+      const hydrated: SessionItem = { ...s, input: detail.data?.input || '', result: detail.data?.result || null, loaded: true };
+      setSessions(prev => prev.map(x => x.id === s.id ? hydrated : x));
+      setResult(hydrated.result || null);
+      setInput('');
+    } catch {
+      toast.error('Failed to load session');
+    }
   };
 
   const filteredSessions = sessions.filter(s =>
@@ -137,9 +236,12 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
       setResult(resData.result);
       toast.success('Test plan generated successfully!');
 
-      // Extract a short title for the session
-      const title = resData.result.feature_name || text.slice(0, 60);
-      addSession(title);
+      // Keep the session's original title once set; only the very first generate names it.
+      const existing = sessions.find(s => s.id === activeSessionId);
+      const title = existing?.title || resData.result.feature_name || text.slice(0, 60);
+      const id = activeSessionId || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+      setActiveSessionId(id);
+      await persistSession({ id, title, updatedAt: new Date().toISOString(), input: text, result: resData.result, loaded: true });
 
       clear();
     } catch (err: any) {
@@ -197,18 +299,32 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
 
   return (
     <div className="flex h-[calc(100vh-140px)]">
-      {/* ── LEFT SIDEBAR ── */}
-      {showSidebar && (
-        <div className="w-[280px] border-r border-slate-200 dark:border-slate-700 p-4 flex flex-col shrink-0 h-full overflow-hidden">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5" /> CHAT HISTORY ({sessions.length})
-            </h3>
-            <button type="button" onClick={() => setShowSidebar(false)} className="p-1 rounded hover:bg-slate-100 text-slate-400">
-              <X className="w-4 h-4" />
-            </button>
+      {/* ── LEFT SIDEBAR: narrow rail that expands into the full drawer on hover ── */}
+      <div ref={historyRef} className="relative shrink-0 h-full z-20">
+        <div
+          onClick={() => setHistoryOpen((o) => !o)}
+          className="w-12 h-full border-r border-slate-200 dark:border-slate-700 flex flex-col items-center py-4 gap-2 cursor-pointer"
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }}
+            className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition"
+            title="New Test Plan"
+          >
+            <PlusCircle className="w-4 h-4" />
+          </button>
+          <div className="w-6 h-px bg-slate-200 dark:bg-slate-700 my-1" />
+          <div className="flex flex-col items-center gap-1 text-slate-400" title={`${sessions.length} saved sessions`}>
+            <Clock className="w-4 h-4" />
+            <span className="text-[10px] font-semibold">{sessions.length}</span>
           </div>
-          <button type="button" onClick={() => { setResult(null); setInput(''); setRefine(''); }} className="w-full btn-primary text-xs flex items-center justify-center gap-2 py-2 mb-3">
+        </div>
+
+        <div className={`absolute left-0 top-0 w-[280px] h-full border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-4 flex flex-col overflow-hidden transition-all duration-150 ${historyOpen ? "opacity-100 visible translate-x-0" : "opacity-0 invisible -translate-x-1 pointer-events-none"}`}>
+          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
+            <Clock className="w-3.5 h-3.5" /> CHAT HISTORY ({sessions.length})
+          </h3>
+          <button type="button" onClick={() => { setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }} className="w-full btn-primary text-xs flex items-center justify-center gap-2 py-2 mb-3">
             <PlusCircle className="w-4 h-4" /> <span>New Test Plan</span>
           </button>
 
@@ -228,9 +344,17 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
               <p className="text-xs text-slate-400 text-center py-6">No saved history yet.</p>
             ) : (
               filteredSessions.map(s => (
-                <div key={s.id} className="group flex items-center gap-1 px-2 py-1.5 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700/50 text-xs">
+                <div
+                  key={s.id}
+                  onClick={() => renamingId !== s.id && selectSession(s)}
+                  className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg cursor-pointer text-xs ${
+                    s.id === activeSessionId
+                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
+                  }`}
+                >
                   {renamingId === s.id ? (
-                    <div className="flex items-center gap-1 flex-1 min-w-0">
+                    <div className="flex items-center gap-1 flex-1 min-w-0" onClick={e => e.stopPropagation()}>
                       <input
                         type="text"
                         value={renameValue}
@@ -246,11 +370,11 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
                     <>
                       <span className="flex-1 truncate text-slate-700 dark:text-slate-300">{s.title}</span>
                       <div className="hidden group-hover:flex items-center gap-0.5">
-                        <button onClick={() => startRename(s)} className="p-0.5 rounded text-slate-400 hover:text-slate-600"><Pencil className="w-3 h-3" /></button>
+                        <button onClick={(e) => { e.stopPropagation(); startRename(s); }} className="p-0.5 rounded text-slate-400 hover:text-slate-600"><Pencil className="w-3 h-3" /></button>
                         {deleteConfirmId === s.id ? (
-                          <button onClick={() => deleteSession(s.id)} className="p-0.5 rounded text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} className="p-0.5 rounded text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
                         ) : (
-                          <button onClick={() => setDeleteConfirmId(s.id)} className="p-0.5 rounded text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }} className="p-0.5 rounded text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
                         )}
                       </div>
                     </>
@@ -260,7 +384,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
             )}
           </div>
         </div>
-      )}
+      </div>
 
       {/* ── MAIN COLUMN: Composer → Results ── */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden animate-[fadeIn_0.3s_ease-out]">
@@ -268,11 +392,6 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
         <div className="shrink-0 border-b border-slate-100 dark:border-slate-700 px-4 py-3">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Requirement Input</span>
-            {!showSidebar && (
-              <button type="button" onClick={() => setShowSidebar(true)} className="p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition" title="Show history sidebar">
-                <PanelLeft className="w-4 h-4" />
-              </button>
-            )}
           </div>
           <form onSubmit={(e) => { e.preventDefault(); runGenerate(input, () => setInput('')); }} className="flex flex-col gap-2">
             <textarea

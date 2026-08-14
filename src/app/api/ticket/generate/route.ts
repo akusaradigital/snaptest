@@ -212,7 +212,7 @@ Return ONLY a valid JSON object in ENGLISH (no markdown blocks like \`\`\`json):
       }
       if (selectedFields.includes('evidence')) {
         const urlInPrompt = formattedConversation.match(/https?:\/\/\S+/)?.[0];
-        const finalEvidence = (parsed.evidence || urlInPrompt || 'https://drive.google.com/file/d/...').replace(/\*\*/g, '');
+        const finalEvidence = (parsed.evidence || urlInPrompt || 'https://example.com/evidence').replace(/\*\*/g, '');
         markdownLines.push(`\n**Evidence:**\n${finalEvidence}`);
         parsed.evidence = finalEvidence;
       }

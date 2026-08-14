@@ -23,10 +23,9 @@ import {
   BookOpen,
   PieChart,
   Target,
-  Sparkles,
 } from "lucide-react";
 
-export type PageId = "dashboard" | "generate" | "history" | "ticket" | "settings" | "data" | "api-agent" | "planner" | "report" | "squad";
+export type PageId = "dashboard" | "generate" | "history" | "ticket" | "settings" | "data" | "api-agent" | "planner" | "report";
 
 interface SidebarProps {
   activePage: PageId;
@@ -35,7 +34,6 @@ interface SidebarProps {
 
 const NAV_ITEMS: { id: PageId; label: string; icon: React.ReactNode }[] = [
   { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-5 h-5" /> },
-  { id: "squad", label: "QA Squad (Multi-Agent)", icon: <Sparkles className="w-5 h-5" /> },
   { id: "generate", label: "Test Case Agent", icon: <Zap className="w-5 h-5" /> },
   { id: "planner", label: "Test Planner", icon: <BookOpen className="w-5 h-5" /> },
   { id: "ticket", label: "Issue & Ticket Agent", icon: <Ticket className="w-5 h-5" /> },
