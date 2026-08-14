@@ -22,7 +22,7 @@ const SECTIONS: { id: SettingSection; label: string; description: string }[] = [
   { id: "ai", label: "AI & Models", description: "Connect your API keys and pick the model for AI-powered test generation." },
   { id: "generation", label: "Generation", description: "Tune the prompt SnapTest uses when generating test cases." },
   { id: "workspace", label: "Workspace", description: "Share test history with members of your team." },
-  { id: "integrations", label: "Integrations", description: "Connect Atlassian Jira Cloud to push tickets to your backlog." },
+  { id: "integrations", label: "Integrations", description: "Connect Atlassian Jira Cloud or Aksora to push tickets to your backlog." },
 ];
 
 export default function SettingsPage({
@@ -42,7 +42,13 @@ export default function SettingsPage({
   const [jiraToken, setJiraToken] = useState("");
   const [jiraProjectKey, setJiraProjectKey] = useState("");
   const [testingJira, setTestingJira] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [savedJira, setSavedJira] = useState(false);
+
+  // Aksora config state
+  const [aksoraUrl, setAksoraUrl] = useState("");
+  const [aksoraKey, setAksoraKey] = useState("");
+  const [testingAksora, setTestingAksora] = useState(false);
+  const [savedAksora, setSavedAksora] = useState(false);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -64,6 +70,15 @@ export default function SettingsPage({
         setJiraProjectKey(parsed.project_key || "");
       } catch { /* ignore */ }
     }
+
+    const savedAksora = localStorage.getItem("aksora_config");
+    if (savedAksora) {
+      try {
+        const parsed = JSON.parse(savedAksora);
+        setAksoraUrl(parsed.url || "");
+        setAksoraKey(parsed.apiKey || "");
+      } catch { /* ignore */ }
+    }
   }, []);
 
   const handleSaveJira = () => {
@@ -76,9 +91,46 @@ export default function SettingsPage({
         project_key: jiraProjectKey.trim().toUpperCase(),
       })
     );
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSavedJira(true);
+    setTimeout(() => setSavedJira(false), 2000);
     toast.success("Jira settings saved in this browser");
+  };
+
+  const handleSaveAksora = () => {
+    localStorage.setItem(
+      "aksora_config",
+      JSON.stringify({
+        url: aksoraUrl.trim() || "http://localhost:3000",
+        apiKey: aksoraKey.trim(),
+      })
+    );
+    setSavedAksora(true);
+    setTimeout(() => setSavedAksora(false), 2000);
+    toast.success("Aksora settings saved in this browser");
+  };
+
+  const handleTestAksora = async () => {
+    if (!aksoraKey) {
+      toast.error("Please enter an Aksora API Key first");
+      return;
+    }
+    setTestingAksora(true);
+    try {
+      const res = await axios.post("/api/aksora/test", {
+        url: aksoraUrl.trim() || "http://localhost:3000",
+        apiKey: aksoraKey.trim(),
+      });
+      if (res.data.valid) {
+        toast.success("Connected to Aksora API successfully!");
+        handleSaveAksora();
+      } else {
+        toast.error(res.data.detail || "Aksora authentication failed");
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || err.message || "Failed to connect to Aksora API");
+    } finally {
+      setTestingAksora(false);
+    }
   };
 
   const handleTestJira = async () => {
@@ -286,8 +338,62 @@ export default function SettingsPage({
                   {testingJira ? "Testing..." : "Test Connection"}
                 </button>
                 <button type="button" onClick={handleSaveJira} className="btn-primary flex items-center gap-1.5 text-xs">
-                  {saved ? <Check className="h-3.5 w-3.5" /> : null}
-                  {saved ? "Saved" : "Save Jira Settings"}
+                  {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
+                  {savedJira ? "Saved" : "Save Jira Settings"}
+                </button>
+              </div>
+
+              {/* Aksora Integration */}
+              <div className="mt-10 flex items-center gap-2">
+                <Share2 className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Aksora Integration</h3>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">
+                Connect your Aksora workspace to sync AI-generated bugs, tasks, and test cases directly to Aksora.
+              </p>
+
+              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-700">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Aksora Base URL</label>
+                  <input
+                    type="text"
+                    value={aksoraUrl}
+                    onChange={(e) => setAksoraUrl(e.target.value)}
+                    placeholder="https://aksora.com (or http://localhost:3000 for local)"
+                    className="input-field text-sm"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    The root URL of your Aksora instance where the API is hosted.
+                  </p>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Key</label>
+                  <input
+                    type="password"
+                    value={aksoraKey}
+                    onChange={(e) => setAksoraKey(e.target.value)}
+                    placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+                    className="input-field font-mono text-sm"
+                  />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Generate an API Key from Aksora under Settings &gt; API Keys.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={handleTestAksora}
+                  disabled={testingAksora}
+                  className="btn-secondary flex items-center gap-1.5 text-xs"
+                >
+                  {testingAksora ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                  {testingAksora ? "Testing..." : "Test Connection"}
+                </button>
+                <button type="button" onClick={handleSaveAksora} className="btn-primary flex items-center gap-1.5 text-xs">
+                  {savedAksora ? <Check className="h-3.5 w-3.5" /> : null}
+                  {savedAksora ? "Saved" : "Save Aksora Settings"}
                 </button>
               </div>
             </section>
