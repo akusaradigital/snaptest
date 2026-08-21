@@ -43,12 +43,14 @@ export default function SettingsPage({
   const [jiraProjectKey, setJiraProjectKey] = useState("");
   const [testingJira, setTestingJira] = useState(false);
   const [savedJira, setSavedJira] = useState(false);
+  const [jiraConnected, setJiraConnected] = useState(false);
 
   // Aksora config state
   const [aksoraUrl, setAksoraUrl] = useState("");
   const [aksoraKey, setAksoraKey] = useState("");
   const [testingAksora, setTestingAksora] = useState(false);
   const [savedAksora, setSavedAksora] = useState(false);
+  const [aksoraConnected, setAksoraConnected] = useState(false);
 
   // Load settings from localStorage
   useEffect(() => {
@@ -68,6 +70,7 @@ export default function SettingsPage({
         setJiraEmail(parsed.email || "");
         setJiraToken(parsed.token || "");
         setJiraProjectKey(parsed.project_key || "");
+        setJiraConnected(!!(parsed.domain && parsed.email && parsed.token && parsed.project_key));
       } catch { /* ignore */ }
     }
 
@@ -77,6 +80,7 @@ export default function SettingsPage({
         const parsed = JSON.parse(savedAksora);
         setAksoraUrl(parsed.url || "");
         setAksoraKey(parsed.apiKey || "");
+        setAksoraConnected(!!(parsed.apiKey && parsed.url));
       } catch { /* ignore */ }
     }
   }, []);
@@ -92,24 +96,54 @@ export default function SettingsPage({
       })
     );
     setSavedJira(true);
+    setJiraConnected(!!(jiraDomain && jiraEmail && jiraToken && jiraProjectKey));
     setTimeout(() => setSavedJira(false), 2000);
     toast.success("Jira settings saved in this browser");
   };
 
+  const handleClearJira = () => {
+    if (!window.confirm("Disconnect Jira? This removes the saved domain, email, token, and project key from this browser.")) return;
+    localStorage.removeItem("jira_config");
+    setJiraDomain("");
+    setJiraEmail("");
+    setJiraToken("");
+    setJiraProjectKey("");
+    setJiraConnected(false);
+    toast.success("Jira integration disconnected");
+  };
+
   const handleSaveAksora = () => {
+    if (!aksoraUrl.trim()) {
+      toast.error("Please enter the Aksora Base URL first");
+      return;
+    }
     localStorage.setItem(
       "aksora_config",
       JSON.stringify({
-        url: aksoraUrl.trim() || "http://localhost:3000",
+        url: aksoraUrl.trim(),
         apiKey: aksoraKey.trim(),
       })
     );
     setSavedAksora(true);
+    setAksoraConnected(!!aksoraKey.trim());
     setTimeout(() => setSavedAksora(false), 2000);
     toast.success("Aksora settings saved in this browser");
   };
 
+  const handleClearAksora = () => {
+    if (!window.confirm("Disconnect Aksora? This removes the saved URL and API key from this browser.")) return;
+    localStorage.removeItem("aksora_config");
+    setAksoraUrl("");
+    setAksoraKey("");
+    setAksoraConnected(false);
+    toast.success("Aksora integration disconnected");
+  };
+
   const handleTestAksora = async () => {
+    if (!aksoraUrl.trim()) {
+      toast.error("Please enter the Aksora Base URL first");
+      return;
+    }
     if (!aksoraKey) {
       toast.error("Please enter an Aksora API Key first");
       return;
@@ -117,7 +151,7 @@ export default function SettingsPage({
     setTestingAksora(true);
     try {
       const res = await axios.post("/api/aksora/test", {
-        url: aksoraUrl.trim() || "http://localhost:3000",
+        url: aksoraUrl.trim(),
         apiKey: aksoraKey.trim(),
       });
       if (res.data.valid) {
@@ -267,6 +301,12 @@ export default function SettingsPage({
               <div className="flex items-center gap-2">
                 <Share2 className="h-4 w-4 text-slate-500" />
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Jira Cloud Integration</h3>
+                {jiraConnected && (
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Connected
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-sm text-slate-500">
                 Connect your Atlassian Jira Cloud workspace to push AI-generated tickets directly to your backlog.
@@ -314,6 +354,9 @@ export default function SettingsPage({
                     </a>{" "}
                     · Stored in this browser only.
                   </p>
+                  {jiraConnected && (
+                    <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Token saved in this browser (hidden)</p>
+                  )}
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Default Project Key</label>
@@ -341,12 +384,23 @@ export default function SettingsPage({
                   {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
                   {savedJira ? "Saved" : "Save Jira Settings"}
                 </button>
+                {jiraConnected && (
+                  <button type="button" onClick={handleClearJira} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                    Disconnect
+                  </button>
+                )}
               </div>
 
               {/* Aksora Integration */}
               <div className="mt-10 flex items-center gap-2">
                 <Share2 className="h-4 w-4 text-slate-500" />
                 <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Aksora Integration</h3>
+                {aksoraConnected && (
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    Connected
+                  </span>
+                )}
               </div>
               <p className="mt-2 text-sm text-slate-500">
                 Connect your Aksora workspace to sync AI-generated bugs, tasks, and test cases directly to Aksora.
@@ -378,6 +432,9 @@ export default function SettingsPage({
                   <p className="mt-1 text-[11px] text-slate-400">
                     Generate an API Key from Aksora under Settings &gt; API Keys.
                   </p>
+                  {aksoraConnected && (
+                    <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Key saved in this browser (hidden)</p>
+                  )}
                 </div>
               </div>
 
@@ -395,6 +452,11 @@ export default function SettingsPage({
                   {savedAksora ? <Check className="h-3.5 w-3.5" /> : null}
                   {savedAksora ? "Saved" : "Save Aksora Settings"}
                 </button>
+                {aksoraConnected && (
+                  <button type="button" onClick={handleClearAksora} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                    Disconnect
+                  </button>
+                )}
               </div>
             </section>
           )}

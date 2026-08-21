@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/html-parser-check.mjs && node tests/unified-qa-chat-check.mjs && node tests/ticket-json-check.mjs && node tests/auth-policy-check.mjs"
+    "test": "node tests/html-parser-check.mjs && node tests/unified-qa-chat-check.mjs && node tests/ticket-json-check.mjs && node tests/auth-policy-check.mjs && tsx tests/outbound-url-check.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",
@@ -39,6 +39,7 @@
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.47",
     "tailwindcss": "^3.4.13",
+    "tsx": "^4.23.12",
     "typescript": "^5.6.2"
   }
 }

@@ -63,7 +63,7 @@ export default function NotFound() {
         </Link>
 
         <p className="text-xs text-slate-400 mt-4">
-          Or navigate to <Link href="/generate" className="text-indigo-500 hover:underline">Generate</Link>, <Link href="/history" className="text-indigo-500 hover:underline">History</Link>, <Link href="/settings" className="text-indigo-500 hover:underline">Settings</Link>
+          Or navigate to <Link href="/generate" className="text-indigo-500 hover:underline">Generate</Link>, <Link href="/settings" className="text-indigo-500 hover:underline">Settings</Link>
         </p>
       </div>
     </div>

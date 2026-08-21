@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Share2 } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -12,12 +12,16 @@ export default function TicketChatBubble({
   onPushToJira,
   readOnly = false,
   jiraConfigured = true,
+  onPushToAksora,
+  aksoraConfigured = true,
   onUpdateTicket,
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
   readOnly?: boolean;
   jiraConfigured?: boolean;
+  onPushToAksora?: (ticketResult: Record<string, any>) => void;
+  aksoraConfigured?: boolean;
   onUpdateTicket?: (messageId: string, updates: Record<string, any>) => void;
 }) {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -190,7 +194,7 @@ export default function TicketChatBubble({
 
           {/* Action Bar inside Chat Bubble */}
           {!isEditing && (
-          <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex items-center gap-2">
+          <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap items-center gap-2">
             {msg.ticket_result?.jira_key && msg.ticket_result?.jira_url ? (
               <a
                 href={msg.ticket_result.jira_url}
@@ -211,6 +215,36 @@ export default function TicketChatBubble({
               >
                 <Ticket className="w-3.5 h-3.5 text-indigo-600" />
                 <span>Push to Jira</span>
+              </button>
+            ) : null}
+
+            {msg.ticket_result?.aksora_pushed ? (
+              msg.ticket_result?.aksora_url ? (
+                <a
+                  href={msg.ticket_result.aksora_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                >
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Pushed to Aksora</span>
+                </a>
+              ) : (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <Check className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Pushed to Aksora</span>
+                </span>
+              )
+            ) : !readOnly && onPushToAksora ? (
+              <button
+                type="button"
+                onClick={() => onPushToAksora(msg.ticket_result!)}
+                disabled={!aksoraConfigured}
+                title={aksoraConfigured ? undefined : "Configure Aksora in Settings first"}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+              >
+                <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+                <span>Push to Aksora</span>
               </button>
             ) : null}
 

@@ -5,9 +5,6 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
   Zap,
-  History,
-  MousePointerClick,
-  Activity,
   Settings,
   Ticket,
   ChevronLeft,
@@ -17,15 +14,12 @@ import {
   X,
   LayoutDashboard,
   Database,
-  Wrench,
   Globe2,
-  GaugeCircle,
   BookOpen,
   PieChart,
-  Target,
 } from "lucide-react";
 
-export type PageId = "dashboard" | "generate" | "history" | "ticket" | "settings" | "data" | "api-agent" | "planner" | "report";
+export type PageId = "dashboard" | "generate" | "ticket" | "settings" | "data" | "api-agent" | "planner" | "report";
 
 interface SidebarProps {
   activePage: PageId;
@@ -40,7 +34,6 @@ const NAV_ITEMS: { id: PageId; label: string; icon: React.ReactNode }[] = [
   { id: "api-agent", label: "API Test Agent", icon: <Globe2 className="w-5 h-5" /> },
   { id: "data", label: "Test Data Generator", icon: <Database className="w-5 h-5" /> },
   { id: "report", label: "Executive Report", icon: <PieChart className="w-5 h-5" /> },
-  { id: "history", label: "Global Activity", icon: <History className="w-5 h-5" /> },
   { id: "settings", label: "Settings", icon: <Settings className="w-5 h-5" /> },
 ];
 

@@ -144,7 +144,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [confirmation, setConfirmation] = useState<"repair" | "jira" | null>(null);
+  const [confirmation, setConfirmation] = useState<"repair" | "jira" | "aksora" | null>(null);
 
   const serverSessions = useServerSessions<GenSession>("unified-qa-chat", GEN_SESSIONS_STORAGE);
 
@@ -322,6 +322,10 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     if (intent === "jira_draft") { await draftJira(); setInputText(""); return; }
     if (intent === "jira_create") {
       if (!activeSession?.artifacts?.jiraDraft) toast.error("Create a Jira draft first."); else setConfirmation("jira");
+      setInputText(""); return;
+    }
+    if (intent === "aksora_create") {
+      if (!activeSession?.artifacts?.jiraDraft) toast.error('Create a ticket draft first (e.g. "draft jira").'); else setConfirmation("aksora");
       setInputText(""); return;
     }
 
@@ -670,6 +674,25 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       const response = await fetch("/api/jira/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...a.jiraDraft, jira_domain: config.domain, jira_email: config.email, jira_token: config.token, jira_project_key: config.project_key }) });
       const data = await response.json(); if (!response.ok) { toast.error(data.detail || "Jira creation failed"); return; }
       updateArtifacts({ jiraIssue: { key: data.issue_key, url: data.issue_url } });
+    } else if (confirmation === "aksora" && a?.jiraDraft) {
+      const config = JSON.parse(localStorage.getItem("aksora_config") || "{}");
+      if (!config.apiKey || !config.url) { toast.error("Configure Aksora integration in Settings first."); setConfirmation(null); return; }
+      const draft = a.jiraDraft as Record<string, any>;
+      const response = await fetch("/api/aksora/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+        aksora_url: config.url,
+        aksora_key: config.apiKey,
+        title: draft.title,
+        issue_type: draft.issue_type,
+        description: draft.description,
+        expected_result: draft.expected_result,
+        actual_result: draft.actual_result,
+        current_behavior: draft.current_behavior,
+        acceptance_criteria: draft.acceptance_criteria,
+        evidence: draft.evidence,
+      }) });
+      const data = await response.json(); if (!response.ok) { toast.error(data.detail || "Aksora push failed"); return; }
+      updateArtifacts({ aksoraPushed: { message: data.message || "Pushed to Aksora!", url: data.url } });
+      toast.success(data.message || "Pushed to Aksora!");
     }
     setConfirmation(null);
   };
@@ -1046,8 +1069,8 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       {confirmation && (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-900/50 p-4" role="presentation">
           <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
-            <h3 id="confirm-title" className="text-lg font-bold">Confirm {confirmation === "repair" ? "repair application" : "Jira creation"}</h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{confirmation === "repair" ? "This replaces the stored Playwright script with the proposed repair." : "This creates a real Jira issue using credentials from Settings."}</p>
+            <h3 id="confirm-title" className="text-lg font-bold">Confirm {confirmation === "repair" ? "repair application" : confirmation === "aksora" ? "Aksora push" : "Jira creation"}</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{confirmation === "repair" ? "This replaces the stored Playwright script with the proposed repair." : confirmation === "aksora" ? "This pushes the ticket draft to Aksora using credentials from Settings." : "This creates a real Jira issue using credentials from Settings."}</p>
             <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setConfirmation(null)} className="btn-ghost">Cancel</button><button type="button" onClick={confirmAction} className="btn-primary">Confirm</button></div>
           </div>
         </div>

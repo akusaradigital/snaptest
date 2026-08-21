@@ -10,7 +10,7 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 - **9Router Integration**: Supports local `http://localhost:20128/v1` and public tunnels (`9router_public` stored in browser).
 - **Layout & Design**: Tailwind CSS, lucide-react, unified chat interface across Test Case Agent & Issue Agent.
 
-## Core Route Structure (9 sidebar pages + landing + share)
+## Core Route Structure (8 sidebar pages + landing + share)
 - `/` — Public marketing landing page (`src/app/page.tsx`) with feature highlights, provider list, and FAQ. CTA routes to `/dashboard` when signed in, else `/login`.
 - `/login` — Google SSO sign-in with callback URL support.
 - `/dashboard` — Dashboard overview with metrics (Total Tests, Active Monitors, Team Members) & Quick Actions.
@@ -20,7 +20,6 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 - `/api-agent` — **API Test Agent**: Paste cURL / OpenAPI / Postman spec, generate API test suites + Postman collections; supports multi-path OpenAPI and native file upload.
 - `/data` — **Test Data Generator**: Describe fields or paste JSON schema, generate mock / boundary / negative payloads exportable as JSON/CSV.
 - `/report` — **Executive Report**: One-click professional QA summary report (key achievements, risk assessment, recommendations) from last 30 days of activity, tickets, and AI usage; printable to PDF.
-- `/history` — Searchable log of past test generations and saved ticket sessions.
 - `/settings` — AI Provider configuration, Jira PAT integration, custom prompt templates, team settings.
 - `/share/[id]` — Public read-only view of a shared result.
 - `not-found.tsx` — Custom 404 page with animated Tailwind mascot and direct action link to `/dashboard`.
@@ -68,7 +67,7 @@ Next.js 14 Web Application for AI-powered UI Test Generation, Automation Scripts
 - **Usage**: `usage`, `usage/summary`.
 - **Runner**: `runner/execute` (sandboxed Playwright/pytest; local-only), `run-test`.
 - **Integrations**: `figma/fetch`, `upload/parse`, `playground/test`, `playground/load`.
-- **Platform**: `auth/[...nextauth]`, `keys/validate`, `models`, `dashboard/metrics`, `activity`, `health`, `ai` (LLM client `callLLM`).
+- **Platform**: `auth/[...nextauth]`, `keys/validate`, `models`, `dashboard/metrics`, `health`, `ai` (LLM client `callLLM`).
 
 ## Database Tables (Neon PostgreSQL)
 Managed by `initDB()` + `ensureSchema()` in `src/app/api/db.ts`:
@@ -88,3 +87,5 @@ Managed by `initDB()` + `ensureSchema()` in `src/app/api/db.ts`:
 - **Strict English UI**: All user-facing UI labels, tooltips, placeholders, and error messages must be in English.
 - **Idempotent DB Migrations**: All new schema fields must be added to `ensureSchema()` in `src/app/api/db.ts` via `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`.
 - **Auth Required**: All `(dashboard)/*` routes and non-public API routes require a valid Auth.js session. Public routes are defined in `src/lib/authPolicy.mjs`.
+- **Suggest Next Steps**: After completing any task, end with exactly 10 follow-up ideas — related improvements or bugs noticed nearby in the code that weren't part of the request. One line each, and never implement them without the user asking first.
+- **No Co-Author Trailer**: Never add a `Co-Authored-By: Claude` (or similar) trailer to commit messages in this repo.

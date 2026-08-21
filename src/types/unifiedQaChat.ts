@@ -18,6 +18,7 @@ export type UnifiedQaIntent =
   | "jira_draft"
   | "jira_create"
   | "jira_open"
+  | "aksora_create"
   | "export"
   | "unknown";
 
@@ -46,6 +47,7 @@ export interface UnifiedQaArtifacts {
   repair?: UnifiedQaRepair;
   jiraDraft?: UnifiedQaJiraDraft;
   jiraIssue?: { key: string; url: string };
+  aksoraPushed?: { message: string; url?: string };
 }
 
 export interface UnifiedQaSession {

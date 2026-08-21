@@ -7,6 +7,7 @@ const INTENTS = [
   ["jira_draft", /\b(?:draft|prepare|write)\b.*\bjira\b|\bjira\b.*\bdraft\b/i],
   ["jira_create", /\b(?:create|submit|file|post)\b.*\bjira\b|\bjira\b.*\b(?:create|submit|file|post)\b/i],
   ["jira_open", /\b(?:open|view|show)\b.*\bjira\b|\bjira\b.*\b(?:open|view|show)\b/i],
+  ["aksora_create", /\b(?:create|submit|file|post|push)\b.*\baksora\b|\baksora\b.*\b(?:create|submit|file|post|push)\b/i],
   ["dedupe", /\b(?:dedupe|de-duplicate|remove duplicates?|merge duplicates?)\b/i],
   ["prioritize", /\b(?:prioriti[sz]e|rank|reorder by priority)\b/i],
   ["retry", /\b(?:retry|rerun|run again|try again)\b/i],

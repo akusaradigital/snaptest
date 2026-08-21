@@ -71,6 +71,8 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [jiraLink, setJiraLink] = useState<{ key: string; url: string } | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [jiraConfigured, setJiraConfigured] = useState(false);
+  const [pushingAksora, setPushingAksora] = useState(false);
+  const [aksoraConfigured, setAksoraConfigured] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
@@ -83,6 +85,12 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       setJiraConfigured(!!(saved.domain && saved.email && saved.token && saved.project_key));
     } catch {
       setJiraConfigured(false);
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem("aksora_config") || "{}");
+      setAksoraConfigured(!!(saved.apiKey && saved.url));
+    } catch {
+      setAksoraConfigured(false);
     }
   }, []);
 
@@ -363,6 +371,64 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       toast.error(err.message || "Failed to push to Jira");
     } finally {
       setPushingJira(false);
+    }
+  };
+
+  const handlePushToAksora = async (result: Record<string, any>) => {
+    const savedAksora = localStorage.getItem("aksora_config");
+    if (!savedAksora) {
+      toast.error("Please configure Aksora integration in Settings first.");
+      return;
+    }
+    let config: any = {};
+    try { config = JSON.parse(savedAksora); } catch {}
+
+    if (!config.apiKey || !config.url) {
+      toast.error("Aksora configuration is incomplete. Please check Settings.");
+      return;
+    }
+
+    setPushingAksora(true);
+
+    try {
+      const res = await fetch("/api/aksora/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          aksora_url: config.url,
+          aksora_key: config.apiKey,
+          title: result.title,
+          issue_type: result.issue_type,
+          description: result.description,
+          expected_result: result.expected_result,
+          actual_result: result.actual_result,
+          current_behavior: result.current_behavior,
+          acceptance_criteria: result.acceptance_criteria,
+          evidence: result.evidence,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to create Aksora record");
+
+      toast.success(data.message || "Pushed to Aksora!");
+
+      if (activeSessionId) {
+        const nextSessions = sessions.map(s => {
+          if (s.id !== activeSessionId) return s;
+          const nextMessages = s.messages.map(m => {
+            if (m.role !== "assistant" || !m.ticket_result || m.ticket_result !== result) return m;
+            return { ...m, ticket_result: { ...m.ticket_result, aksora_pushed: true, aksora_url: data.url || undefined } };
+          });
+          return { ...s, messages: nextMessages };
+        });
+        const updatedTarget = nextSessions.find(s => s.id === activeSessionId);
+        saveSessionsToStorage(nextSessions, updatedTarget);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to push to Aksora");
+    } finally {
+      setPushingAksora(false);
     }
   };
 
@@ -724,6 +790,8 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
                     }
                     onPushToJira={handlePushToJira}
                     jiraConfigured={jiraConfigured}
+                    onPushToAksora={handlePushToAksora}
+                    aksoraConfigured={aksoraConfigured}
                     onUpdateTicket={handleUpdateTicket}
                   />
                   {msg.role === "assistant" && idx === messages.length - 1 && !isLoading && (

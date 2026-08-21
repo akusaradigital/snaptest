@@ -49,6 +49,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ detail: 'Message content or screenshot is required' }, { status: 400 });
     }
 
+    // Cheap heuristic (no LLM call) to pick the language for hardcoded fallback strings —
+    // matches common Indonesian function/stopwords not used in English QA chat.
+    const looksIndonesian = (text: string) => /\b(yang|dengan|tidak|adalah|saya|kami|bisa|akan|dari|pada|nya|tolong|mohon|gagal|rusak|error nya)\b/i.test(text || '');
+
     // Always include all fields for the smart agent
     const selectedFields: Field[] = (Array.isArray(fields) && fields.length > 0)
       ? fields.filter((f: string) => (ALL_FIELDS as readonly string[]).includes(f)) as Field[]
@@ -57,11 +61,15 @@ export async function POST(request: Request) {
     // ponytail: skip the LLM round-trip entirely for bare greetings on the first turn —
     // this is the actual "hi feels slow" fix, no LLM call is faster than any amount of streaming.
     const GREETING_RE = /^(hi|hello|hey|halo|hai|p|pagi|test|tes|thanks|thank you|makasih|terima kasih)[.!?]*$/i;
+    const ID_GREETING_RE = /^(halo|hai|pagi|tes|makasih|terima kasih)[.!?]*$/i;
     if (chatHistory.length === 1 && !lastMsg.image_base64 && GREETING_RE.test(lastMsg.content.trim())) {
+      const greetingReply = ID_GREETING_RE.test(lastMsg.content.trim())
+        ? "Halo! Ceritakan bug, improvement, atau fitur yang ingin didokumentasikan — screenshot atau link Drive juga membantu."
+        : "Hi! Tell me about the bug, improvement, or feature you'd like to document — a screenshot or Drive link helps too.";
       return NextResponse.json({
         has_ticket_data: false,
         chat_title: 'New Ticket Chat',
-        assistant_reply: "Hi! Tell me about the bug, improvement, or feature you'd like to document — a screenshot or Drive link helps too.",
+        assistant_reply: greetingReply,
         fields: selectedFields,
         issue_type: 'Bug',
         title: null, description: null, current_behavior: null,
@@ -111,17 +119,17 @@ TEMPLATE FORMAT RULES (when ticket data is ready):
   - Acceptance Criteria: Array of DoD checklist items.
 
 STRICT CONTEXT RULES:
-- LANGUAGE: All generated field contents MUST BE IN CLEAR, PROFESSIONAL ENGLISH.
+- LANGUAGE: Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation, even in later turns and even if the user then switches back to a different language for a message — their explicit instruction always overrides the default of matching the latest message.
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL, put that EXACT URL under "evidence".
 
 OUTPUT FORMAT:
-Return ONLY a valid JSON object in ENGLISH (no markdown blocks like \`\`\`json):
+Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text values in the language determined by the LANGUAGE rule above:
 {
   "has_ticket_data": boolean,
   "chat_title": "Short 3-5 word session title summarizing the topic (or 'New Ticket Chat' if just greeting)",
-  "assistant_reply": "Your conversational response to the user in English",
+  "assistant_reply": "Your conversational response to the user, in the language determined by the LANGUAGE rule above",
   "issue_type": "Bug" | "Improvement" | "New Feature",
   "title": "Clean title without ** stars",
   "description": "Clean description text without ** stars",
@@ -134,7 +142,11 @@ Return ONLY a valid JSON object in ENGLISH (no markdown blocks like \`\`\`json):
 
     // ponytail: cap history sent to the LLM — the whole conversation is resent (uncached) every
     // turn, so a long chat makes every reply slower and pricier. Last 10 turns is plenty of context.
-    const recentHistory = chatHistory.slice(-10);
+    // Always keep the first turn too, since that's where a user-set instruction (e.g. "reply in
+    // English from now on") is most likely to live and would otherwise age out of the window.
+    const recentHistory = chatHistory.length > 10
+      ? [chatHistory[0], ...chatHistory.slice(-9)]
+      : chatHistory;
     const formattedConversation = recentHistory.map((m, i) => {
       const imgNote = m.image_base64 ? ' [Attached Screenshot]' : '';
       return `${m.role.toUpperCase()} (Turn ${i + 1}):\n${m.content}${imgNote}`;
@@ -221,7 +233,9 @@ Return ONLY a valid JSON object in ENGLISH (no markdown blocks like \`\`\`json):
     return NextResponse.json({
       has_ticket_data: hasTicketData,
       chat_title: parsed.chat_title || null,
-      assistant_reply: parsed.assistant_reply || 'Hello! Please describe the issue, improvement, or new feature you would like to document.',
+      assistant_reply: parsed.assistant_reply || (looksIndonesian(formattedConversation)
+        ? 'Halo! Silakan jelaskan bug, improvement, atau fitur baru yang ingin didokumentasikan.'
+        : 'Hello! Please describe the issue, improvement, or new feature you would like to document.'),
       fields: selectedFields,
       issue_type: type,
       title: hasTicketData ? cleanTitle : null,

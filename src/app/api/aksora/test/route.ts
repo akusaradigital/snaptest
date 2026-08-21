@@ -13,8 +13,12 @@ export async function POST(request: Request) {
     if (!apiKey) {
       return NextResponse.json({ detail: 'Aksora API Key is required' }, { status: 400 });
     }
+    if (!url) {
+      return NextResponse.json({ detail: 'Aksora Base URL is required' }, { status: 400 });
+    }
+    try { new URL(url); } catch { return NextResponse.json({ detail: 'Invalid Aksora Base URL format' }, { status: 400 }); }
 
-    const baseUrl = (url || 'http://localhost:3000').replace(/\/$/, '');
+    const baseUrl = url.replace(/\/$/, '');
     const testEndpoint = `${baseUrl}/api/public/v1/bugs`;
 
     const res = await validatedAxiosRequest(testEndpoint, {
@@ -24,7 +28,7 @@ export async function POST(request: Request) {
         Accept: 'application/json',
       },
       timeout: 10000,
-    });
+    }, { allowLocalhost: process.env.NODE_ENV !== 'production' });
 
     if (res.status === 200) {
       return NextResponse.json({
