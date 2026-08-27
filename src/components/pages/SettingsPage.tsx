@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import AISettings from "@/components/AISettings";
 import TeamSettings from "@/components/TeamSettings";
-import { FileText, Users, Share2, Check, Loader2, Cpu } from "lucide-react";
+import { FileText, Users, Share2, Check, Loader2, ExternalLink, Unlink, CheckCircle2 } from "lucide-react";
 import toast from "react-hot-toast";
 import axios from "axios";
 import { ModelsResponse } from "@/types";
@@ -37,10 +37,14 @@ export default function SettingsPage({
   const [customPrompt, setCustomPrompt] = useState("");
 
   // Jira config state
+  const [jiraAuthType, setJiraAuthType] = useState<"oauth2" | "pat">("oauth2");
+  const [jiraAccessToken, setJiraAccessToken] = useState("");
+  const [jiraCloudId, setJiraCloudId] = useState("");
+  const [jiraSiteName, setJiraSiteName] = useState("");
   const [jiraDomain, setJiraDomain] = useState("");
   const [jiraEmail, setJiraEmail] = useState("");
   const [jiraToken, setJiraToken] = useState("");
-  const [jiraProjectKey, setJiraProjectKey] = useState("");
+  const [jiraProjectKey, setJiraProjectKey] = useState("BUG");
   const [testingJira, setTestingJira] = useState(false);
   const [savedJira, setSavedJira] = useState(false);
   const [jiraConnected, setJiraConnected] = useState(false);
@@ -52,6 +56,29 @@ export default function SettingsPage({
   const [savedAksora, setSavedAksora] = useState(false);
   const [aksoraConnected, setAksoraConnected] = useState(false);
 
+  // Check URL params for OAuth results
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const tabParam = url.searchParams.get("tab");
+    if (tabParam === "integrations") {
+      setActiveSection("integrations");
+    }
+    if (url.searchParams.get("jira_connected")) {
+      setActiveSection("integrations");
+      toast.success("Jira Cloud connected successfully via OAuth!");
+      url.searchParams.delete("jira_connected");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+    }
+    const oauthError = url.searchParams.get("jira_oauth_error");
+    if (oauthError) {
+      setActiveSection("integrations");
+      toast.error(`Jira connection failed: ${oauthError}`);
+      url.searchParams.delete("jira_oauth_error");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+    }
+  }, []);
+
   // Load settings from localStorage
   useEffect(() => {
     const savedPrompt = localStorage.getItem("snaptest_settings");
@@ -62,22 +89,26 @@ export default function SettingsPage({
       } catch { /* ignore */ }
     }
 
-    const savedJira = localStorage.getItem("jira_config");
-    if (savedJira) {
+    const savedJiraConfig = localStorage.getItem("jira_config");
+    if (savedJiraConfig) {
       try {
-        const parsed = JSON.parse(savedJira);
+        const parsed = JSON.parse(savedJiraConfig);
+        setJiraAuthType(parsed.auth_type || (parsed.access_token ? "oauth2" : "pat"));
+        setJiraAccessToken(parsed.access_token || "");
+        setJiraCloudId(parsed.cloud_id || "");
+        setJiraSiteName(parsed.site_name || "");
         setJiraDomain(parsed.domain || "");
         setJiraEmail(parsed.email || "");
         setJiraToken(parsed.token || "");
-        setJiraProjectKey(parsed.project_key || "");
-        setJiraConnected(!!(parsed.domain && parsed.email && parsed.token && parsed.project_key));
+        setJiraProjectKey(parsed.project_key || "BUG");
+        setJiraConnected(!!((parsed.access_token && parsed.cloud_id) || (parsed.domain && parsed.email && parsed.token)));
       } catch { /* ignore */ }
     }
 
-    const savedAksora = localStorage.getItem("aksora_config");
-    if (savedAksora) {
+    const savedAksoraConfig = localStorage.getItem("aksora_config");
+    if (savedAksoraConfig) {
       try {
-        const parsed = JSON.parse(savedAksora);
+        const parsed = JSON.parse(savedAksoraConfig);
         setAksoraUrl(parsed.url || "");
         setAksoraKey(parsed.apiKey || "");
         setAksoraConnected(!!(parsed.apiKey && parsed.url));
@@ -85,96 +116,53 @@ export default function SettingsPage({
     }
   }, []);
 
-  const handleSaveJira = () => {
-    localStorage.setItem(
-      "jira_config",
-      JSON.stringify({
-        domain: jiraDomain.trim(),
-        email: jiraEmail.trim(),
-        token: jiraToken.trim(),
-        project_key: jiraProjectKey.trim().toUpperCase(),
-      })
-    );
-    setSavedJira(true);
-    setJiraConnected(!!(jiraDomain && jiraEmail && jiraToken && jiraProjectKey));
-    setTimeout(() => setSavedJira(false), 2000);
-    toast.success("Jira settings saved in this browser");
+  const handleProjectKeyChange = (val: string) => {
+    const upper = val.toUpperCase();
+    setJiraProjectKey(upper);
+    const existing = JSON.parse(localStorage.getItem("jira_config") || "{}");
+    localStorage.setItem("jira_config", JSON.stringify({ ...existing, project_key: upper.trim() }));
   };
 
-  const handleClearJira = () => {
-    if (!window.confirm("Disconnect Jira? This removes the saved domain, email, token, and project key from this browser.")) return;
+  const handleSaveJira = () => {
+    const existing = JSON.parse(localStorage.getItem("jira_config") || "{}");
+    const updated = {
+      ...existing,
+      auth_type: jiraAuthType,
+      domain: jiraDomain.trim(),
+      email: jiraEmail.trim(),
+      token: jiraToken.trim(),
+      project_key: jiraProjectKey.trim().toUpperCase(),
+      access_token: jiraAccessToken,
+      cloud_id: jiraCloudId,
+      site_name: jiraSiteName,
+    };
+    localStorage.setItem("jira_config", JSON.stringify(updated));
+    setSavedJira(true);
+    setJiraConnected(!!((jiraAccessToken && jiraCloudId) || (jiraDomain && jiraEmail && jiraToken)));
+    setTimeout(() => setSavedJira(false), 2000);
+    toast.success("Jira settings saved");
+  };
+
+  const handleDisconnectJira = () => {
     localStorage.removeItem("jira_config");
+    setJiraAccessToken("");
+    setJiraCloudId("");
+    setJiraSiteName("");
     setJiraDomain("");
     setJiraEmail("");
     setJiraToken("");
-    setJiraProjectKey("");
+    setJiraProjectKey("BUG");
     setJiraConnected(false);
-    toast.success("Jira integration disconnected");
-  };
-
-  const handleSaveAksora = () => {
-    if (!aksoraUrl.trim()) {
-      toast.error("Please enter the Aksora Base URL first");
-      return;
-    }
-    localStorage.setItem(
-      "aksora_config",
-      JSON.stringify({
-        url: aksoraUrl.trim(),
-        apiKey: aksoraKey.trim(),
-      })
-    );
-    setSavedAksora(true);
-    setAksoraConnected(!!aksoraKey.trim());
-    setTimeout(() => setSavedAksora(false), 2000);
-    toast.success("Aksora settings saved in this browser");
-  };
-
-  const handleClearAksora = () => {
-    if (!window.confirm("Disconnect Aksora? This removes the saved URL and API key from this browser.")) return;
-    localStorage.removeItem("aksora_config");
-    setAksoraUrl("");
-    setAksoraKey("");
-    setAksoraConnected(false);
-    toast.success("Aksora integration disconnected");
-  };
-
-  const handleTestAksora = async () => {
-    if (!aksoraUrl.trim()) {
-      toast.error("Please enter the Aksora Base URL first");
-      return;
-    }
-    if (!aksoraKey) {
-      toast.error("Please enter an Aksora API Key first");
-      return;
-    }
-    setTestingAksora(true);
-    try {
-      const res = await axios.post("/api/aksora/test", {
-        url: aksoraUrl.trim(),
-        apiKey: aksoraKey.trim(),
-      });
-      if (res.data.valid) {
-        toast.success("Connected to Aksora API successfully!");
-        handleSaveAksora();
-      } else {
-        toast.error(res.data.detail || "Aksora authentication failed");
-      }
-    } catch (err: any) {
-      toast.error(err.response?.data?.detail || err.message || "Failed to connect to Aksora API");
-    } finally {
-      setTestingAksora(false);
-    }
+    toast.success("Disconnected from Jira");
   };
 
   const handleTestJira = async () => {
-    if (!jiraDomain || !jiraEmail || !jiraToken) {
-      toast.error("Please fill Domain, Email, and Token first");
-      return;
-    }
     setTestingJira(true);
     try {
       const res = await axios.post("/api/jira/test", {
+        auth_type: jiraAuthType,
+        access_token: jiraAccessToken,
+        cloud_id: jiraCloudId,
         domain: jiraDomain.trim(),
         email: jiraEmail.trim(),
         token: jiraToken.trim(),
@@ -189,6 +177,52 @@ export default function SettingsPage({
       toast.error(err.response?.data?.detail || err.message || "Failed to connect to Jira");
     } finally {
       setTestingJira(false);
+    }
+  };
+
+  const handleSaveAksora = () => {
+    localStorage.setItem(
+      "aksora_config",
+      JSON.stringify({
+        url: aksoraUrl.trim().replace(/\/$/, ""),
+        apiKey: aksoraKey.trim(),
+      })
+    );
+    setSavedAksora(true);
+    setAksoraConnected(!!(aksoraUrl && aksoraKey));
+    setTimeout(() => setSavedAksora(false), 2000);
+    toast.success("Aksora settings saved in this browser");
+  };
+
+  const handleClearAksora = () => {
+    localStorage.removeItem("aksora_config");
+    setAksoraUrl("");
+    setAksoraKey("");
+    setAksoraConnected(false);
+    toast.success("Aksora disconnected");
+  };
+
+  const handleTestAksora = async () => {
+    if (!aksoraUrl || !aksoraKey) {
+      toast.error("Please fill Aksora Base URL and API Key first");
+      return;
+    }
+    setTestingAksora(true);
+    try {
+      const res = await axios.post("/api/aksora/test", {
+        url: aksoraUrl.trim().replace(/\/$/, ""),
+        apiKey: aksoraKey.trim(),
+      });
+      if (res.data.valid) {
+        toast.success(`Connected to Aksora as ${res.data.userName || res.data.userEmail || "User"}!`);
+        handleSaveAksora();
+      } else {
+        toast.error(res.data.detail || "Aksora authentication failed");
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || err.message || "Failed to connect to Aksora");
+    } finally {
+      setTestingAksora(false);
     }
   };
 
@@ -312,62 +346,111 @@ export default function SettingsPage({
                 Connect your Atlassian Jira Cloud workspace to push AI-generated tickets directly to your backlog.
               </p>
 
-              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-700">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Jira Domain</label>
-                  <input
-                    type="text"
-                    value={jiraDomain}
-                    onChange={(e) => setJiraDomain(e.target.value)}
-                    placeholder="example.atlassian.net"
-                    className="input-field text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Atlassian Account Email</label>
-                  <input
-                    type="email"
-                    value={jiraEmail}
-                    onChange={(e) => setJiraEmail(e.target.value)}
-                    placeholder="qa@company.com"
-                    className="input-field text-sm"
-                  />
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Token</label>
-                  <input
-                    type="password"
-                    value={jiraToken}
-                    onChange={(e) => setJiraToken(e.target.value)}
-                    placeholder="ATATT3xFfGF0..."
-                    className="input-field font-mono text-sm"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    Generate token at{" "}
+              {/* 1-Click OAuth Connection Card */}
+              <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-900/50">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
+                      1-Click Atlassian OAuth 2.0
+                    </h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {jiraAccessToken
+                        ? `Connected to ${jiraSiteName || jiraDomain || "Jira Cloud"}`
+                        : "Connect with your Atlassian account in one click."}
+                    </p>
+                  </div>
+                  {jiraAccessToken ? (
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Connected
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleDisconnectJira}
+                        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-400"
+                      >
+                        <Unlink className="h-3.5 w-3.5" />
+                        Disconnect
+                      </button>
+                    </div>
+                  ) : (
                     <a
-                      href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-600 underline"
+                      href="/api/jira/oauth/login"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
                     >
-                      id.atlassian.com
-                    </a>{" "}
-                    · Stored in this browser only.
-                  </p>
-                  {jiraConnected && (
-                    <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Token saved in this browser (hidden)</p>
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      Connect Jira Cloud
+                    </a>
                   )}
                 </div>
+              </div>
+
+              {/* Default Project Key */}
+              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-700">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Default Project Key</label>
                   <input
                     type="text"
                     value={jiraProjectKey}
-                    onChange={(e) => setJiraProjectKey(e.target.value)}
-                    placeholder="QA or PROJ"
+                    onChange={(e) => handleProjectKeyChange(e.target.value)}
+                    placeholder="BUG or QA"
                     className="input-field font-mono text-sm uppercase"
                   />
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    The project code in Jira where new issues will be created (e.g. BUG, QA, PROJ).
+                  </p>
                 </div>
+
+                {/* Manual PAT Fallback Section */}
+                <details className="mt-4 rounded-lg border border-slate-200 p-4 text-xs dark:border-slate-800">
+                  <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                    Manual API Token Fallback (Alternative)
+                  </summary>
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Jira Domain</label>
+                      <input
+                        type="text"
+                        value={jiraDomain}
+                        onChange={(e) => setJiraDomain(e.target.value)}
+                        placeholder="example.atlassian.net"
+                        className="input-field text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Atlassian Account Email</label>
+                      <input
+                        type="email"
+                        value={jiraEmail}
+                        onChange={(e) => setJiraEmail(e.target.value)}
+                        placeholder="qa@company.com"
+                        className="input-field text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Token</label>
+                      <input
+                        type="password"
+                        value={jiraToken}
+                        onChange={(e) => setJiraToken(e.target.value)}
+                        placeholder="ATATT3xFfGF0..."
+                        className="input-field font-mono text-sm"
+                      />
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Generate token at{" "}
+                        <a
+                          href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 underline"
+                        >
+                          id.atlassian.com
+                        </a>
+                      </p>
+                    </div>
+                  </div>
+                </details>
               </div>
 
               <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-700">
@@ -380,12 +463,14 @@ export default function SettingsPage({
                   {testingJira ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   {testingJira ? "Testing..." : "Test Connection"}
                 </button>
-                <button type="button" onClick={handleSaveJira} className="btn-primary flex items-center gap-1.5 text-xs">
-                  {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
-                  {savedJira ? "Saved" : "Save Jira Settings"}
-                </button>
-                {jiraConnected && (
-                  <button type="button" onClick={handleClearJira} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                {!jiraAccessToken && (
+                  <button type="button" onClick={handleSaveJira} className="btn-primary flex items-center gap-1.5 text-xs">
+                    {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
+                    {savedJira ? "Saved" : "Save Jira Settings"}
+                  </button>
+                )}
+                {jiraConnected && !jiraAccessToken && (
+                  <button type="button" onClick={handleDisconnectJira} className="btn-secondary text-xs text-red-600 hover:text-red-700">
                     Disconnect
                   </button>
                 )}

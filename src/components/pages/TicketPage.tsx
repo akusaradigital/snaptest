@@ -9,6 +9,8 @@ import {
   X,
   PlusCircle,
   Trash2,
+  PanelLeft,
+  Ticket,
   Bot,
   User,
   Loader2,
@@ -48,19 +50,7 @@ const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!historyOpen) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [historyOpen]);
+  const [showHistorySidebar, setShowHistorySidebar] = useState(true);
 
   const [inputText, setInputText] = useState("");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
@@ -82,7 +72,11 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("jira_config") || "{}");
-      setJiraConfigured(!!(saved.domain && saved.email && saved.token && saved.project_key));
+      const isConnected = !!(
+        (saved.access_token || (saved.domain && saved.email && saved.token)) &&
+        saved.project_key
+      );
+      setJiraConfigured(isConnected);
     } catch {
       setJiraConfigured(false);
     }
@@ -130,33 +124,31 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
             const hashSessionId = window.location.hash.replace("#", "");
             const targetId = hashSessionId && serverSessions.find(s => s.id === hashSessionId) 
               ? hashSessionId 
-              : null; // Always blank start unless coming from a deep link
+              : serverSessions[0].id;
+            
             setActiveSessionId(targetId);
-
-            // Fetch detail for active session only if jumped via hash
-            if (targetId) {
-              const detailRes = await fetch(`/api/tickets/${targetId}`);
-              if (detailRes.ok) {
-                const detail = await detailRes.json();
-                setSessions((prev) =>
-                  prev.map((s) => (s.id === detail.id ? { ...s, messages: detail.messages || [] } : s))
-                );
-              }
-            }
+            // Fetch full message details for the selected session
+            loadFullSession(targetId);
             return;
           }
         }
-      } catch {}
+      } catch (err) {
+        console.warn("Failed to load ticket sessions from server, using local fallback", err);
+      }
 
-      // Fallback to localStorage if unauthenticated or offline
+      // LocalStorage fallback
       try {
         const saved = localStorage.getItem(TICKET_SESSIONS_STORAGE);
         if (saved) {
-          const parsed: ChatSession[] = JSON.parse(saved);
-          setSessions(parsed);
-          const hashSessionId = window.location.hash.replace("#", "");
-          const targetId = hashSessionId && parsed.find(s => s.id === hashSessionId) ? hashSessionId : null;
-          setActiveSessionId(targetId);
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSessions(parsed);
+            const hashSessionId = window.location.hash.replace("#", "");
+            const targetId = hashSessionId && parsed.find((s: any) => s.id === hashSessionId)
+              ? hashSessionId
+              : parsed[0].id;
+            setActiveSessionId(targetId);
+          }
         }
       } catch {}
     };
@@ -164,85 +156,77 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     fetchServerSessions();
   }, []);
 
-  // Fetch full messages when switching active session if messages empty
-  useEffect(() => {
-    if (!activeSessionId) return;
-    const target = sessions.find((s) => s.id === activeSessionId);
-    if (target && target.messages.length === 0) {
-      fetch(`/api/tickets/${activeSessionId}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((detail) => {
-          if (detail) {
-            setSessions((prev) =>
-              prev.map((s) => (s.id === detail.id ? { ...s, messages: detail.messages || [] } : s))
-            );
-          }
-        })
-        .catch(() => {});
-    }
-  }, [activeSessionId]);
-
-  const saveSessionsToStorage = (updatedSessions: ChatSession[], targetSession?: ChatSession) => {
-    let reordered = [...updatedSessions];
-    if (targetSession) {
-      reordered = [
-        targetSession,
-        ...reordered.filter(s => s.id !== targetSession.id)
-      ];
-    }
-    setSessions(reordered);
+  const loadFullSession = async (id: string) => {
     try {
-      localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(reordered));
+      const res = await fetch(`/api/tickets/${id}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.session) {
+          setSessions(prev => prev.map(s => s.id === id ? {
+            id: data.session.id,
+            title: data.session.title,
+            updatedAt: new Date(data.session.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+            messages: data.session.messages || [],
+          } : s));
+        }
+      }
+    } catch (err) {
+      console.warn(`Failed to load full session ${id}`, err);
+    }
+  };
+
+  const handleSelectSession = (id: string) => {
+    setActiveSessionId(id);
+    window.location.hash = id;
+    const s = sessions.find(s => s.id === id);
+    if (!s || s.messages.length === 0) {
+      loadFullSession(id);
+    }
+  };
+
+  const activeSession = sessions.find((s) => s.id === activeSessionId);
+  const messages = activeSession ? activeSession.messages : [];
+
+  // Identify latest ticket result msg for docked canvas
+  const latestTicketMsg = [...messages].reverse().find(
+    (m) => m.role === "assistant" && m.ticket_result && m.ticket_result.has_ticket_data !== false
+  );
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, isLoading]);
+
+  const saveSessionsToStorage = (updated: ChatSession[], targetSessionToSync?: ChatSession) => {
+    setSessions(updated);
+    try {
+      localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(updated));
     } catch {}
 
-    // Sync active session to server asynchronously
-    if (targetSession) {
-      const cleanMessages = (targetSession.messages || []).map((m) => {
-        const copy = { ...m };
-        delete copy.image_base64;
-        return copy;
-      });
-
+    // Async sync to server API
+    if (targetSessionToSync) {
       fetch("/api/tickets", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: targetSession.id,
-          title: targetSession.title,
-          messages: cleanMessages,
+          id: targetSessionToSync.id,
+          title: targetSessionToSync.title,
+          messages: targetSessionToSync.messages,
         }),
-      }).catch(() => {});
+      }).catch((err) => console.warn("Failed to sync ticket session to server:", err));
     }
   };
 
-  const activeSession = sessions.find((s) => s.id === activeSessionId) || null;
-  const messages = activeSession ? activeSession.messages : [];
-
-  // Scroll to bottom on new messages
-  useEffect(() => {
-    // Delay slightly to ensure React has flushed the DOM
-    const timer = setTimeout(() => {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-    }, 100);
-    return () => clearTimeout(timer);
-  }, [messages, isLoading, activeSessionId]);
-
   const handleCreateNewSession = () => {
-    const newId = crypto.randomUUID();
     const newSession: ChatSession = {
-      id: newId,
+      id: "sess_" + Date.now(),
       title: "New Ticket Chat",
       updatedAt: new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
       messages: [],
     };
-
-    const nextSessions = [newSession, ...sessions];
-    saveSessionsToStorage(nextSessions, newSession);
-    setActiveSessionId(newId);
-    setInputText("");
-    setImageBase64(null);
-    setImagePreview(null);
-    toast.success("New ticket chat session started!");
+    const updated = [newSession, ...sessions];
+    setActiveSessionId(newSession.id);
+    window.location.hash = newSession.id;
+    saveSessionsToStorage(updated, newSession);
   };
 
   const handleDeleteSession = (id: string, e: React.MouseEvent) => {
@@ -250,61 +234,148 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     setDeleteConfirmId(id);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteConfirmId) return;
-    const nextSessions = sessions.filter((s) => s.id !== deleteConfirmId);
-    saveSessionsToStorage(nextSessions);
-    fetch(`/api/tickets/${deleteConfirmId}`, { method: "DELETE" }).catch(() => {});
-
-    if (activeSessionId === deleteConfirmId) {
-      setActiveSessionId(nextSessions[0]?.id || null);
-    }
-    toast.success("Session deleted");
+    const id = deleteConfirmId;
     setDeleteConfirmId(null);
+
+    const updated = sessions.filter((s) => s.id !== id);
+    setSessions(updated);
+    try {
+      localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(updated));
+    } catch {}
+
+    if (activeSessionId === id) {
+      const nextId = updated.length > 0 ? updated[0].id : null;
+      setActiveSessionId(nextId);
+      if (nextId) {
+        window.location.hash = nextId;
+        loadFullSession(nextId);
+      } else {
+        window.location.hash = "";
+      }
+    }
+
+    // Call server DELETE
+    try {
+      await fetch(`/api/tickets/${id}`, { method: "DELETE" });
+      toast.success("Chat session deleted");
+    } catch (err) {
+      console.warn("Failed to delete session on server", err);
+    }
   };
 
-  const commitRename = (session: ChatSession) => {
+  const handleStartRename = (id: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setRenamingId(id);
+    setRenameValue(currentTitle);
+  };
+
+  const handleSaveRename = (id: string, e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const trimmed = renameValue.trim();
+    if (!trimmed) {
+      setRenamingId(null);
+      return;
+    }
+    const updated = sessions.map(s => s.id === id ? { ...s, title: trimmed } : s);
+    const target = updated.find(s => s.id === id);
+    saveSessionsToStorage(updated, target);
     setRenamingId(null);
-    if (!trimmed || trimmed === session.title) return;
-    const nextSessions = sessions.map((s) => (s.id === session.id ? { ...s, title: trimmed } : s));
-    saveSessionsToStorage(nextSessions, { ...session, title: trimmed });
+    toast.success("Renamed chat");
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      toast.error("Image size must be less than 10MB");
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Screenshot too large (max 5MB)");
       return;
     }
+
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setImagePreview(dataUrl);
-      const base64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
-      setImageBase64(base64);
+    reader.onload = () => {
+      const result = reader.result as string;
+      setImagePreview(result);
+      setImageBase64(result);
     };
     reader.readAsDataURL(file);
   };
 
-  const handlePaste = (e: React.ClipboardEvent) => {
-    const items = Array.from(e.clipboardData.items);
-    const imgItem = items.find(i => i.type.startsWith('image/'));
-    if (!imgItem) return;
-    const file = imgItem.getAsFile();
-    if (file) {
-      e.preventDefault();
-      if (file.size > 15 * 1024 * 1024) { toast.error("Image too large (max 15MB)"); return; }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const dataUrl = event.target?.result as string;
-        setImagePreview(dataUrl);
-        const base64 = dataUrl.replace(/^data:image\/[a-z]+;base64,/, "");
-        setImageBase64(base64);
-      };
-      reader.readAsDataURL(file);
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData.items;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.indexOf("image") !== -1) {
+        const file = items[i].getAsFile();
+        if (!file) continue;
+
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error("Pasted image too large (max 5MB)");
+          return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          setImagePreview(result);
+          setImageBase64(result);
+          toast.success("Screenshot attached from clipboard!");
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
     }
+  };
+
+  const handleUpdateTicket = (messageId: string, updates: Record<string, any>) => {
+    if (!activeSessionId) return;
+
+    const nextSessions = sessions.map((s) => {
+      if (s.id !== activeSessionId) return s;
+
+      const nextMessages = s.messages.map((m) => {
+        if (m.id !== messageId) return m;
+
+        const currentResult = m.ticket_result || {};
+        const mergedResult = {
+          ...currentResult,
+          ...updates,
+        };
+
+        const markdown = `### ${mergedResult.title || ""}
+**Type:** ${mergedResult.issue_type || "Bug"}
+**Severity:** ${mergedResult.severity || "Medium"}
+
+**Description:**
+${mergedResult.description || ""}
+
+${mergedResult.steps_to_reproduce?.length ? `**Steps to Reproduce:**\n${mergedResult.steps_to_reproduce.map((step: string, i: number) => `${i + 1}. ${step}`).join("\n")}\n` : ""}
+**Current Behavior:**
+${mergedResult.current_behavior || ""}
+
+**Expected Result:**
+${mergedResult.expected_result || ""}
+
+**Actual Result:**
+${mergedResult.actual_result || ""}
+
+${mergedResult.acceptance_criteria?.length ? `**Acceptance Criteria:**\n${mergedResult.acceptance_criteria.map((c: string) => `- ${c}`).join("\n")}\n` : ""}
+${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
+
+        mergedResult.markdown = markdown;
+
+        return {
+          ...m,
+          ticket_result: mergedResult,
+        };
+      });
+
+      return { ...s, messages: nextMessages };
+    });
+
+    const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(nextSessions, updatedTarget);
   };
 
   const copyToClipboard = async (text: string) => {
@@ -312,7 +383,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       await navigator.clipboard.writeText(text);
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
-      toast.success("Copied ticket to clipboard!");
+      toast.success("Copied full ticket to clipboard!");
     } catch {
       toast.error("Failed to copy");
     }
@@ -327,7 +398,8 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     let config: any = {};
     try { config = JSON.parse(savedJira); } catch {}
 
-    if (!config.domain || !config.email || !config.token || !config.project_key) {
+    const isOAuth = config.auth_type === "oauth2" && !!config.access_token && !!config.cloud_id;
+    if (!config.project_key || (!isOAuth && (!config.domain || !config.email || !config.token))) {
       toast.error("Jira configuration is incomplete. Please check Settings.");
       return;
     }
@@ -336,11 +408,26 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     setJiraLink(null);
 
     try {
+      if (isOAuth && config.expires_at && Date.now() >= Number(config.expires_at) - 60_000) {
+        const refreshRes = await fetch("/api/jira/oauth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: config.refresh_token }),
+        });
+        const refreshed = await refreshRes.json();
+        if (!refreshRes.ok) throw new Error(refreshed.detail || "Jira authorization expired");
+        config = { ...config, ...refreshed };
+        localStorage.setItem("jira_config", JSON.stringify(config));
+      }
+
       const res = await fetch("/api/jira/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...result,
+          auth_type: config.auth_type,
+          access_token: config.access_token,
+          cloud_id: config.cloud_id,
           jira_domain: config.domain,
           jira_email: config.email,
           jira_token: config.token,
@@ -437,82 +524,60 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const requestAssistantReply = async (
     currentSessions: ChatSession[],
     currentSessionId: string,
-    messagesForRequest: ChatMessage[]
+    messagesForRequest: ChatMessage[],
+    apiKey: string
   ) => {
+    setIsLoading(true);
     try {
-      const routerPublic = aiProvider === "9router-public"
-        ? JSON.parse(localStorage.getItem("9router_public") || "{}")
-        : {};
+      const formattedHistory = messagesForRequest.map((m) => ({
+        role: m.role,
+        content: m.content,
+        image_base64: m.image_base64,
+      }));
 
       const res = await fetch("/api/ticket/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: messagesForRequest.map(m => {
-            const item: any = { role: m.role, content: m.content };
-            if (m.image_base64) item.image_base64 = m.image_base64;
-            return item;
-          }),
-          ai_provider: aiProvider,
-          ai_model: aiModel,
-          api_key: getApiKey(aiProvider),
-          nine_router_public_url: routerPublic.url || "",
-          nine_router_public_key: routerPublic.key || "",
+          messages: formattedHistory,
+          provider: aiProvider,
+          model: aiModel,
+          api_key: apiKey,
         }),
       });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to generate ticket");
 
-      const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+      const botMsg: ChatMessage = {
+        id: "msg_" + Date.now(),
         role: "assistant",
         content: data.assistant_reply || "Here is the updated Jira ticket.",
-        ticket_result: data,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        ticket_result: data.ticket_data || undefined,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
-      let updatedTargetSession: ChatSession | undefined;
-      const finalSessions = currentSessions.map(s => {
-        if (s.id === currentSessionId) {
-          // Keep initial title once set, don't overwrite on subsequent turns
-          const existingTitle = (s.title && s.title !== "New Ticket Chat" && s.title !== "Untitled Chat") ? s.title : null;
-          const smartTitle = existingTitle || data.chat_title || data.title || s.title;
-          const updated = {
-            ...s,
-            title: smartTitle,
-            messages: [...messagesForRequest, assistantMessage],
-          };
-          updatedTargetSession = updated;
-          return updated;
+      const finalSessions = currentSessions.map((s) => {
+        if (s.id !== currentSessionId) return s;
+        // Auto-generate title from first ticket draft or input
+        let newTitle = s.title;
+        if (s.title === "New Ticket Chat" && data.ticket_data?.title) {
+          newTitle = data.ticket_data.title.substring(0, 30);
         }
-        return s;
+        return {
+          ...s,
+          title: newTitle,
+          updatedAt: new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+          messages: [...messagesForRequest, botMsg],
+        };
       });
 
-      saveSessionsToStorage(finalSessions, updatedTargetSession);
+      const target = finalSessions.find((s) => s.id === currentSessionId);
+      saveSessionsToStorage(finalSessions, target);
     } catch (err: any) {
-      const errMsg = err.message || "Something went wrong";
-      toast.error(errMsg);
-
-      // Append assistant error message so user can see it in chat & retry easily
-      const errMessage: ChatMessage = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: `❌ Error: ${errMsg}. Please check your AI provider/key settings and try again.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      };
-
-      const finalSessions = currentSessions.map(s => {
-        if (s.id === currentSessionId) {
-          return {
-            ...s,
-            messages: [...messagesForRequest, errMessage],
-          };
-        }
-        return s;
-      });
-
-      saveSessionsToStorage(finalSessions);
+      toast.error(err.message || "Failed to communicate with AI Agent");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -520,210 +585,184 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     if (e) e.preventDefault();
     if (!inputText.trim() && !imageBase64) return;
 
-    if (!aiProvider || !aiModel) {
-      toast.error("Please select your AI Provider and Model from 'AI Settings' (top-right) first.");
+    let apiKey = getApiKey(aiProvider);
+    if (!apiKey && aiProvider !== "9router") {
+      toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
     }
 
-    // Ensure active session
+    // Determine current session
     let currentSessionId = activeSessionId;
     let currentSessions = [...sessions];
 
-    if (!currentSessionId || !currentSessions.find(s => s.id === currentSessionId)) {
-      const newId = crypto.randomUUID();
+    if (!currentSessionId) {
       const newSession: ChatSession = {
-        id: newId,
-        title: inputText.trim().substring(0, 30) || "Screenshot Ticket",
+        id: "sess_" + Date.now(),
+        title: inputText.trim() ? inputText.trim().substring(0, 24) : "Ticket Inspection",
         updatedAt: new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
         messages: [],
       };
       currentSessions = [newSession, ...currentSessions];
-      currentSessionId = newId;
-      setActiveSessionId(newId);
+      currentSessionId = newSession.id;
+      setActiveSessionId(newSession.id);
+      window.location.hash = newSession.id;
     }
 
-    const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+    const userMsg: ChatMessage = {
+      id: "msg_" + Date.now(),
       role: "user",
       content: inputText.trim(),
       image_preview: imagePreview || undefined,
       image_base64: imageBase64 || undefined,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
-    const targetSession = currentSessions.find(s => s.id === currentSessionId)!;
-    const updatedMessages = [...targetSession.messages, userMessage];
+    // Append user message immediately
+    const sessionMessages = (currentSessions.find((s) => s.id === currentSessionId)?.messages || []);
+    const messagesWithUser = [...sessionMessages, userMsg];
 
-    if (targetSession.messages.length === 0) {
-      // Title is set ONCE from the very first user message — never changed again
-      targetSession.title = inputText.trim().substring(0, 40) || "Screenshot Ticket";
-    }
+    const updatedSessions = currentSessions.map((s) => {
+      if (s.id !== currentSessionId) return s;
+      return {
+        ...s,
+        updatedAt: new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+        messages: messagesWithUser,
+      };
+    });
 
-    targetSession.messages = updatedMessages;
-    targetSession.updatedAt = new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const targetSession = updatedSessions.find((s) => s.id === currentSessionId);
+    saveSessionsToStorage(updatedSessions, targetSession);
 
-    saveSessionsToStorage(currentSessions, { ...targetSession });
-
+    // Reset input dock
     setInputText("");
     setImageBase64(null);
     setImagePreview(null);
-    setIsLoading(true);
-    try {
-      await requestAssistantReply(currentSessions, currentSessionId, updatedMessages);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-  const handleUpdateTicket = (messageId: string, updates: Record<string, any>) => {
-    if (!activeSession || !activeSessionId) return;
-    const nextSessions = sessions.map((s) => {
-      if (s.id !== activeSessionId) return s;
-      const nextMessages = s.messages.map((m) => {
-        if (m.id !== messageId || !m.ticket_result) return m;
-        const tr = { ...m.ticket_result, ...updates };
-        // Rebuild the copyable markdown from the edited fields, same shape as the server builds it.
-        const lines: string[] = [];
-        if (tr.issue_type) lines.push(`**Issue Type:** ${tr.issue_type}`);
-        if (tr.title) lines.push(`**Title:** ${tr.title}`);
-        if (tr.description) lines.push(`\n**Description:**\n${tr.description}`);
-        if (tr.current_behavior && tr.issue_type === "Improvement") lines.push(`\n**Current Behavior:**\n${tr.current_behavior}`);
-        if (tr.expected_result) lines.push(`\n**${tr.issue_type === "Improvement" ? "Expected / Proposed Result" : "Expected Result"}:**\n${tr.expected_result}`);
-        if (tr.actual_result && tr.issue_type === "Bug") lines.push(`\n**Actual Result:**\n${tr.actual_result}`);
-        if (tr.acceptance_criteria?.length && tr.issue_type === "New Feature") {
-          lines.push(`\n**Acceptance Criteria:**\n${tr.acceptance_criteria.map((c: string) => `- [ ] ${c}`).join('\n')}`);
-        }
-        if (tr.evidence) lines.push(`\n**Evidence:**\n${tr.evidence}`);
-        tr.markdown = lines.join('\n');
-        return { ...m, ticket_result: tr };
-      });
-      return { ...s, messages: nextMessages };
-    });
-    const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
-    saveSessionsToStorage(nextSessions, updatedTarget);
+    await requestAssistantReply(updatedSessions, currentSessionId, messagesWithUser, apiKey || "");
   };
 
   const handleRegenerate = async () => {
-    if (!activeSession || !activeSessionId || isLoading || isRegenerating) return;
-    const msgs = activeSession.messages;
-    if (msgs.length === 0 || msgs[msgs.length - 1].role !== "assistant") return;
+    if (!activeSessionId || isLoading || isRegenerating) return;
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (!session || session.messages.length === 0) return;
 
-    // Drop the last assistant reply, resend everything up to (and including) the last user turn
-    const messagesUpToUser = msgs.slice(0, -1);
-    const trimmedSessions = sessions.map(s =>
-      s.id === activeSessionId ? { ...s, messages: messagesUpToUser } : s
-    );
-    setSessions(trimmedSessions);
+    // Drop the trailing assistant reply (and any dangling assistant replies) to get back to user turn
+    const msgs = session.messages;
+    const lastUserIdx = msgs.map((m) => m.role).lastIndexOf("user");
+    if (lastUserIdx === -1) {
+      toast.error("No user message to regenerate from");
+      return;
+    }
+
+    const truncatedMessages = msgs.slice(0, lastUserIdx + 1);
+    let apiKey = getApiKey(aiProvider);
+    if (!apiKey && aiProvider !== "9router") {
+      toast.error(`Please set an API key for ${aiProvider} in Settings`);
+      return;
+    }
 
     setIsRegenerating(true);
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSessionId ? { ...s, messages: truncatedMessages } : s
+    );
+    const target = updatedSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(updatedSessions, target);
+
     try {
-      await requestAssistantReply(trimmedSessions, activeSessionId, messagesUpToUser);
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      toast.success("Regenerated reply");
     } finally {
       setIsRegenerating(false);
     }
   };
 
   return (
-    <div className="flex h-[calc(100vh-140px)]">
-      {/* Sessions History Rail — narrow strip; click to open the drawer, click outside to close */}
-      <div ref={historyRef} className="relative shrink-0 h-full z-20">
-        <div
-          onClick={() => setHistoryOpen((o) => !o)}
-          className="w-12 h-full border-r border-slate-200 dark:border-slate-700 flex flex-col items-center py-4 gap-2 bg-white dark:bg-slate-800 cursor-pointer"
-        >
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); handleCreateNewSession(); }}
-            className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition"
-            title="New Ticket Chat"
-          >
-            <PlusCircle className="w-4 h-4" />
-          </button>
-          <div className="w-6 h-px bg-slate-100 dark:bg-slate-700 my-1" />
-          <div className="flex flex-col items-center gap-1 text-slate-400" title={`${sessions.length} saved chats`}>
-            <Clock className="w-4 h-4" />
-            <span className="text-[10px] font-semibold">{sessions.length}</span>
-          </div>
-        </div>
-
-        <div className={`absolute left-0 top-0 w-[280px] h-full border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-4 flex flex-col overflow-hidden transition-all duration-150 ${historyOpen ? "opacity-100 visible translate-x-0" : "opacity-0 invisible -translate-x-1 pointer-events-none"}`}>
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
-            <Clock className="w-3.5 h-3.5" />
-            Chat History ({sessions.length})
-          </h3>
-
+    <div className="flex h-[calc(100vh-6rem)] w-full overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm font-sans">
+      {/* Sessions / History Sidebar — Collapsible */}
+      <div className={`transition-all duration-300 ease-in-out border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col shrink-0 ${
+        showHistorySidebar ? "w-64" : "w-0 overflow-hidden border-r-0"
+      }`}>
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            Ticket Chats
+          </span>
           <button
             type="button"
             onClick={handleCreateNewSession}
-            className="w-full btn-primary text-xs flex items-center justify-center gap-2 py-2 mb-3"
+            className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition"
+            title="New Chat"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>New Ticket Chat</span>
           </button>
+        </div>
 
-          {sessions.length > 0 && (
-            <div className="relative mb-2">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={sessionSearch}
-                onChange={(e) => setSessionSearch(e.target.value)}
-                placeholder="Search chats..."
-                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              />
-            </div>
-          )}
+        {/* Search */}
+        <div className="p-2 border-b border-slate-200/60 dark:border-slate-800/60">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              value={sessionSearch}
+              onChange={(e) => setSessionSearch(e.target.value)}
+              placeholder="Search chats..."
+              className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+        </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
-            {sessions.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">No saved ticket chats yet.</p>
-            ) : (
-              (() => {
-                const filtered = sessions.filter((s) =>
-                  (s.title || "Untitled Chat").toLowerCase().includes(sessionSearch.trim().toLowerCase())
-                );
-                if (filtered.length === 0) {
-                  return <p className="text-xs text-slate-400 text-center py-6">No chats match "{sessionSearch}".</p>;
-                }
-                return filtered.map((s) => {
-                const isActive = s.id === activeSessionId;
+        {/* List */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1 scrollbar-thin">
+          {sessions.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">No previous chats</p>
+          ) : (
+            (() => {
+              const filtered = sessions.filter(s =>
+                s.title.toLowerCase().includes(sessionSearch.toLowerCase()) ||
+                s.messages.some(m => m.content.toLowerCase().includes(sessionSearch.toLowerCase()))
+              );
+              if (filtered.length === 0) {
+                return <p className="text-xs text-slate-400 text-center py-6">No matching chats</p>;
+              }
+              return filtered.map((s) => {
+                const isSelected = s.id === activeSessionId;
                 const isRenaming = renamingId === s.id;
+
                 return (
                   <div
                     key={s.id}
-                    onClick={() => !isRenaming && setActiveSessionId(s.id)}
-                    onDoubleClick={() => { setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                    className={`group p-2.5 rounded-xl text-left cursor-pointer transition flex items-center justify-between ${
-                      isActive
-                        ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold border border-indigo-200 dark:border-indigo-800"
-                        : "hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300"
+                    onClick={() => handleSelectSession(s.id)}
+                    className={`group relative p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between text-xs ${
+                      isSelected
+                        ? "bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 font-semibold"
+                        : "hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300"
                     }`}
                   >
-                    <div className="min-w-0 flex-1 mr-2">
+                    <div className="flex-1 min-w-0 pr-2">
                       {isRenaming ? (
-                        <input
-                          autoFocus
-                          value={renameValue}
-                          onChange={(e) => setRenameValue(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onBlur={() => commitRename(s)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") { e.preventDefault(); commitRename(s); }
-                            if (e.key === "Escape") { setRenamingId(null); }
-                          }}
-                          className="w-full text-xs px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none bg-white dark:bg-slate-800"
-                        />
+                        <form onSubmit={(e) => handleSaveRename(s.id, e)} onClick={(e) => e.stopPropagation()}>
+                          <input
+                            autoFocus
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onBlur={() => handleSaveRename(s.id)}
+                            className="w-full px-1.5 py-0.5 rounded border border-indigo-500 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                          />
+                        </form>
                       ) : (
-                        <p className="text-xs truncate">{s.title || "Untitled Chat"}</p>
+                        <>
+                          <p className="truncate">{s.title}</p>
+                          <span className="text-[10px] text-slate-400 font-normal block">{s.updatedAt}</span>
+                        </>
                       )}
-                      <p className="text-[10px] text-slate-400 mt-0.5">{s.updatedAt}</p>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
                       <button
                         type="button"
-                        onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                        className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition"
+                        onClick={(e) => handleStartRename(s.id, s.title, e)}
+                        className="p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
                         title="Rename chat"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
@@ -739,15 +778,42 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
                     </div>
                   </div>
                 );
-                });
-              })()
-            )}
-          </div>
+              });
+            })()
+          )}
         </div>
       </div>
 
       {/* Main Ticket Chat — single column, scrolls independently */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top bar with Toggle History */}
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowHistorySidebar(!showHistorySidebar)}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition"
+              title={showHistorySidebar ? "Hide History" : "Show History"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-sm">
+              {activeSession ? activeSession.title : "New Ticket Chat"}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleCreateNewSession}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 hover:bg-indigo-100 transition font-medium"
+            >
+              <PlusCircle className="w-3.5 h-3.5" />
+              <span>New Chat</span>
+            </button>
+          </div>
+        </div>
+
         {/* Chat Messages Feed */}
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin">
           {messages.length === 0 ? (
@@ -790,8 +856,10 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
                     }
                     onPushToJira={handlePushToJira}
                     jiraConfigured={jiraConfigured}
+                    pushingJira={pushingJira}
                     onPushToAksora={handlePushToAksora}
                     aksoraConfigured={aksoraConfigured}
+                    pushingAksora={pushingAksora}
                     onUpdateTicket={handleUpdateTicket}
                   />
                   {msg.role === "assistant" && idx === messages.length - 1 && !isLoading && (

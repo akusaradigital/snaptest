@@ -129,6 +129,9 @@ export async function POST(request: Request) {
   try {
     if (!(await auth())?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     const {
+      auth_type,
+      access_token,
+      cloud_id,
       jira_domain,
       jira_email,
       jira_token,
@@ -138,16 +141,37 @@ export async function POST(request: Request) {
       ...rest
     } = await request.json();
 
-    if (!jira_domain || !jira_email || !jira_token || !jira_project_key) {
-      return NextResponse.json({ detail: 'Jira settings incomplete. Please configure Jira in Settings.' }, { status: 400 });
+    if (!jira_project_key) {
+      return NextResponse.json({ detail: 'Default Project Key is required' }, { status: 400 });
     }
     if (!title) {
       return NextResponse.json({ detail: 'Title is required to create a Jira issue' }, { status: 400 });
     }
 
-    const cleanDomain = jira_domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const destination = `https://${cleanDomain}/rest/api/3/issue`;
-    const authHeader = Buffer.from(`${jira_email.trim()}:${jira_token.trim()}`).toString('base64');
+    const isOAuth = auth_type === 'oauth2' && !!access_token;
+    if (!isOAuth && (!jira_domain || !jira_email || !jira_token)) {
+      return NextResponse.json({ detail: 'Jira settings incomplete. Please configure Jira in Settings.' }, { status: 400 });
+    }
+
+    let destination = '';
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    let cleanDomain = (jira_domain || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+    if (isOAuth) {
+      if (!cloud_id || !/^[A-Za-z0-9-]+$/.test(cloud_id)) {
+        return NextResponse.json({ detail: 'Jira OAuth workspace is invalid. Reconnect Jira in Settings.' }, { status: 400 });
+      }
+      destination = `https://api.atlassian.com/ex/jira/${cloud_id}/rest/api/3/issue`;
+      headers['Authorization'] = `Bearer ${access_token.trim()}`;
+    } else {
+      destination = `https://${cleanDomain}/rest/api/3/issue`;
+      const authHeader = Buffer.from(`${jira_email.trim()}:${jira_token.trim()}`).toString('base64');
+      headers['Authorization'] = `Basic ${authHeader}`;
+    }
     const projectKey = jira_project_key.trim().toUpperCase();
 
     // Map AI issue type directly to Jira exact work types: Bug, Improvement, New Feature, Task
@@ -177,17 +201,13 @@ export async function POST(request: Request) {
 
     const res = await validatedAxiosRequest(destination, {
       method: 'POST', data: jiraBody,
-      headers: {
-        Authorization: `Basic ${authHeader}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers,
       timeout: 15000,
     });
     if (res.status >= 400) throw new Error('Jira rejected the request');
 
     const issueKey = res.data.key;
-    const issueUrl = `https://${cleanDomain}/browse/${issueKey}`;
+    const issueUrl = cleanDomain ? `https://${cleanDomain}/browse/${issueKey}` : `https://api.atlassian.com/ex/jira/${cloud_id}/browse/${issueKey}`;
 
     return NextResponse.json({
       success: true,

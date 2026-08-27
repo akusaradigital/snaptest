@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Share2 } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2 } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -12,16 +12,20 @@ export default function TicketChatBubble({
   onPushToJira,
   readOnly = false,
   jiraConfigured = true,
+  pushingJira = false,
   onPushToAksora,
   aksoraConfigured = true,
+  pushingAksora = false,
   onUpdateTicket,
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
   readOnly?: boolean;
   jiraConfigured?: boolean;
+  pushingJira?: boolean;
   onPushToAksora?: (ticketResult: Record<string, any>) => void;
   aksoraConfigured?: boolean;
+  pushingAksora?: boolean;
   onUpdateTicket?: (messageId: string, updates: Record<string, any>) => void;
 }) {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -86,60 +90,69 @@ export default function TicketChatBubble({
                 <input
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
                 />
               </label>
               <label className="block">
                 <span className="text-xs font-bold text-slate-500">Description</span>
                 <textarea
-                  rows={3}
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm resize-y"
+                  rows={3}
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
                 />
               </label>
-              {msg.ticket_result.issue_type === "Improvement" && (
-                <label className="block">
-                  <span className="text-xs font-bold text-slate-500">Current Behavior</span>
-                  <textarea
-                    rows={2}
-                    value={draft.current_behavior}
-                    onChange={(e) => setDraft({ ...draft, current_behavior: e.target.value })}
-                    className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm resize-y"
-                  />
-                </label>
-              )}
               <label className="block">
-                <span className="text-xs font-bold text-slate-500">{msg.ticket_result.issue_type === "Improvement" ? "Expected / Proposed Result" : "Expected Result"}</span>
+                <span className="text-xs font-bold text-slate-500">Current Behavior</span>
                 <textarea
+                  value={draft.current_behavior}
+                  onChange={(e) => setDraft({ ...draft, current_behavior: e.target.value })}
                   rows={2}
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-bold text-slate-500">Expected Result</span>
+                <textarea
                   value={draft.expected_result}
                   onChange={(e) => setDraft({ ...draft, expected_result: e.target.value })}
-                  className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm resize-y"
+                  rows={2}
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
                 />
               </label>
-              {msg.ticket_result.issue_type === "Bug" && (
-                <label className="block">
-                  <span className="text-xs font-bold text-slate-500">Actual Result</span>
-                  <textarea
-                    rows={2}
-                    value={draft.actual_result}
-                    onChange={(e) => setDraft({ ...draft, actual_result: e.target.value })}
-                    className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm resize-y"
-                  />
-                </label>
-              )}
               <label className="block">
-                <span className="text-xs font-bold text-slate-500">Evidence</span>
+                <span className="text-xs font-bold text-slate-500">Actual Result</span>
+                <textarea
+                  value={draft.actual_result}
+                  onChange={(e) => setDraft({ ...draft, actual_result: e.target.value })}
+                  rows={2}
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
+                />
+              </label>
+              <label className="block">
+                <span className="text-xs font-bold text-slate-500">Evidence URL</span>
                 <input
                   value={draft.evidence}
                   onChange={(e) => setDraft({ ...draft, evidence: e.target.value })}
-                  className="w-full mt-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-medium"
+                  placeholder="https://..."
                 />
               </label>
-              <div className="flex items-center gap-2 pt-1">
-                <button type="button" onClick={saveEditing} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition">Save</button>
-                <button type="button" onClick={() => setIsEditing(false)} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 transition">Cancel</button>
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={saveEditing}
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           ) : (
@@ -150,25 +163,35 @@ export default function TicketChatBubble({
           {msg.ticket_result.description && (
             <div>
               <p className="font-bold mb-1">Description:</p>
-              <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{stripStars(msg.ticket_result.description)}</p>
+              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(msg.ticket_result.description)}</p>
+            </div>
+          )}
+          {msg.ticket_result.steps_to_reproduce?.length > 0 && (
+            <div>
+              <p className="font-bold mb-1">Steps to Reproduce:</p>
+              <ol className="list-decimal list-inside space-y-1 text-slate-700 dark:text-slate-200">
+                {msg.ticket_result.steps_to_reproduce.map((step: string, idx: number) => (
+                  <li key={idx} className="pl-1">{stripStars(step)}</li>
+                ))}
+              </ol>
             </div>
           )}
           {msg.ticket_result.current_behavior && (
             <div>
               <p className="font-bold mb-1">Current Behavior:</p>
-              <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{stripStars(msg.ticket_result.current_behavior)}</p>
+              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(msg.ticket_result.current_behavior)}</p>
             </div>
           )}
           {msg.ticket_result.expected_result && (
             <div>
-              <p className="font-bold mb-1">{msg.ticket_result.issue_type === "Improvement" ? "Expected / Proposed Result:" : "Expected Result:"}</p>
-              <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{stripStars(msg.ticket_result.expected_result)}</p>
+              <p className="font-bold mb-1">Expected Result:</p>
+              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(msg.ticket_result.expected_result)}</p>
             </div>
           )}
           {msg.ticket_result.actual_result && (
             <div>
               <p className="font-bold mb-1">Actual Result:</p>
-              <p className="whitespace-pre-wrap text-slate-700 dark:text-slate-200">{stripStars(msg.ticket_result.actual_result)}</p>
+              <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(msg.ticket_result.actual_result)}</p>
             </div>
           )}
           {msg.ticket_result.acceptance_criteria?.length > 0 && (
@@ -205,16 +228,27 @@ export default function TicketChatBubble({
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Pushed ({msg.ticket_result.jira_key})</span>
               </a>
+            ) : !readOnly && !jiraConfigured ? (
+              <a
+                href="/settings?tab=integrations"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition"
+              >
+                <Ticket className="w-3.5 h-3.5 text-amber-600" />
+                <span>Connect Jira</span>
+              </a>
             ) : !readOnly && onPushToJira ? (
               <button
                 type="button"
                 onClick={() => onPushToJira(msg.ticket_result!)}
-                disabled={!jiraConfigured}
-                title={jiraConfigured ? undefined : "Configure Jira in Settings first"}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+                disabled={pushingJira}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
               >
-                <Ticket className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Push to Jira</span>
+                {pushingJira ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                ) : (
+                  <Ticket className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>{pushingJira ? "Pushing to Jira..." : "Push to Jira"}</span>
               </button>
             ) : null}
 
@@ -235,16 +269,27 @@ export default function TicketChatBubble({
                   <span>Pushed to Aksora</span>
                 </span>
               )
+            ) : !readOnly && !aksoraConfigured ? (
+              <a
+                href="/settings?tab=integrations"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition"
+              >
+                <Share2 className="w-3.5 h-3.5 text-slate-600" />
+                <span>Connect Aksora</span>
+              </a>
             ) : !readOnly && onPushToAksora ? (
               <button
                 type="button"
                 onClick={() => onPushToAksora(msg.ticket_result!)}
-                disabled={!aksoraConfigured}
-                title={aksoraConfigured ? undefined : "Configure Aksora in Settings first"}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+                disabled={pushingAksora}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
               >
-                <Share2 className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Push to Aksora</span>
+                {pushingAksora ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                ) : (
+                  <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>{pushingAksora ? "Pushing to Aksora..." : "Push to Aksora"}</span>
               </button>
             ) : null}
 
