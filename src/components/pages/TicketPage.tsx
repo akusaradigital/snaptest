@@ -161,12 +161,13 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       const res = await fetch(`/api/tickets/${id}`);
       if (res.ok) {
         const data = await res.json();
-        if (data.session) {
+        // data directly returns the record object, not data.session
+        if (data && data.id) {
           setSessions(prev => prev.map(s => s.id === id ? {
-            id: data.session.id,
-            title: data.session.title,
-            updatedAt: new Date(data.session.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-            messages: data.session.messages || [],
+            id: data.id,
+            title: data.title,
+            updatedAt: new Date(data.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+            messages: data.messages || [],
           } : s));
         }
       }
