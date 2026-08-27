@@ -3,7 +3,20 @@
 import { useState, useEffect } from "react";
 import AISettings from "@/components/AISettings";
 import TeamSettings from "@/components/TeamSettings";
-import { FileText, Users, Share2, Check, Loader2, ExternalLink, Unlink, CheckCircle2 } from "lucide-react";
+import {
+  FileText,
+  Users,
+  Share2,
+  Check,
+  Loader2,
+  ExternalLink,
+  Unlink,
+  CheckCircle2,
+  ArrowLeft,
+  Search,
+  Sliders,
+  Sparkles,
+} from "lucide-react";
 import toast from "react-hot-toast";
 import axios from "axios";
 import { ModelsResponse } from "@/types";
@@ -17,12 +30,13 @@ interface SettingsPageProps {
 }
 
 type SettingSection = "ai" | "generation" | "workspace" | "integrations";
+type IntegrationId = "jira" | "aksora";
 
 const SECTIONS: { id: SettingSection; label: string; description: string }[] = [
   { id: "ai", label: "AI & Models", description: "Connect your API keys and pick the model for AI-powered test generation." },
   { id: "generation", label: "Generation", description: "Tune the prompt SnapTest uses when generating test cases." },
   { id: "workspace", label: "Workspace", description: "Share test history with members of your team." },
-  { id: "integrations", label: "Integrations", description: "Connect Atlassian Jira Cloud or Aksora to push tickets to your backlog." },
+  { id: "integrations", label: "Integrations", description: "Connect issue trackers and backlog tools to push AI-generated tickets." },
 ];
 
 export default function SettingsPage({
@@ -33,6 +47,8 @@ export default function SettingsPage({
   refreshModels,
 }: SettingsPageProps) {
   const [activeSection, setActiveSection] = useState<SettingSection>("ai");
+  const [activeIntegrationDetail, setActiveIntegrationDetail] = useState<IntegrationId | null>(null);
+  const [integrationSearch, setIntegrationSearch] = useState("");
 
   const [customPrompt, setCustomPrompt] = useState("");
 
@@ -66,6 +82,7 @@ export default function SettingsPage({
     }
     if (url.searchParams.get("jira_connected")) {
       setActiveSection("integrations");
+      setActiveIntegrationDetail("jira");
       toast.success("Jira Cloud connected successfully via OAuth!");
       url.searchParams.delete("jira_connected");
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
@@ -73,6 +90,7 @@ export default function SettingsPage({
     const oauthError = url.searchParams.get("jira_oauth_error");
     if (oauthError) {
       setActiveSection("integrations");
+      setActiveIntegrationDetail("jira");
       toast.error(`Jira connection failed: ${oauthError}`);
       url.searchParams.delete("jira_oauth_error");
       window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
@@ -240,6 +258,38 @@ export default function SettingsPage({
 
   const active = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
 
+  const integrationList = [
+    {
+      id: "jira" as IntegrationId,
+      name: "Jira Cloud",
+      description: "Create structured tickets, bugs, and tasks with full steps to reproduce directly to your backlog.",
+      connected: jiraConnected,
+      badge: jiraAccessToken ? "OAuth 2.0" : jiraConnected ? "API Token" : null,
+      icon: (
+        <svg viewBox="0 0 24 24" className="h-8 w-8 text-[#0052CC]" fill="currentColor">
+          <path d="M11.53 2c0 2.4-1.97 4.35-4.4 4.35H2.8v4.33h4.33c2.4 0 4.4 1.95 4.4 4.35v6.97h4.34v-6.97c0-2.4 1.96-4.35 4.36-4.35h4.37V6.35h-4.37c-2.4 0-4.36-1.95-4.36-4.35V2h-4.34z"/>
+        </svg>
+      ),
+    },
+    {
+      id: "aksora" as IntegrationId,
+      name: "Aksora",
+      description: "Sync AI-generated bugs, test scenarios, and QA execution records to your Aksora workspace.",
+      connected: aksoraConnected,
+      badge: aksoraConnected ? "API Key" : null,
+      icon: (
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-base shadow-sm">
+          A
+        </div>
+      ),
+    },
+  ];
+
+  const filteredIntegrations = integrationList.filter((item) =>
+    item.name.toLowerCase().includes(integrationSearch.toLowerCase()) ||
+    item.description.toLowerCase().includes(integrationSearch.toLowerCase())
+  );
+
   return (
     <div className="mx-auto w-full max-w-7xl">
       <header className="border-b border-slate-200 pb-5 dark:border-slate-700">
@@ -257,7 +307,10 @@ export default function SettingsPage({
                 <li key={section.id}>
                   <button
                     type="button"
-                    onClick={() => setActiveSection(section.id)}
+                    onClick={() => {
+                      setActiveSection(section.id);
+                      setActiveIntegrationDetail(null);
+                    }}
                     aria-current={isActive ? "page" : undefined}
                     className={`w-full rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
                       isActive
@@ -331,218 +384,323 @@ export default function SettingsPage({
           )}
 
           {activeSection === "integrations" && (
-            <section className="max-w-2xl">
-              <div className="flex items-center gap-2">
-                <Share2 className="h-4 w-4 text-slate-500" />
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Jira Cloud Integration</h3>
-                {jiraConnected && (
-                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Connected
-                  </span>
-                )}
-              </div>
-              <p className="mt-2 text-sm text-slate-500">
-                Connect your Atlassian Jira Cloud workspace to push AI-generated tickets directly to your backlog.
-              </p>
-
-              {/* 1-Click OAuth Connection Card */}
-              <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-900/50">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
-                      1-Click Atlassian OAuth 2.0
-                    </h4>
-                    <p className="mt-1 text-xs text-slate-500">
-                      {jiraAccessToken
-                        ? `Connected to ${jiraSiteName || jiraDomain || "Jira Cloud"}`
-                        : "Connect with your Atlassian account in one click."}
-                    </p>
-                  </div>
-                  {jiraAccessToken ? (
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Connected
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleDisconnectJira}
-                        className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-400"
-                      >
-                        <Unlink className="h-3.5 w-3.5" />
-                        Disconnect
-                      </button>
-                    </div>
-                  ) : (
-                    <a
-                      href="/api/jira/oauth/login"
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      Connect Jira Cloud
-                    </a>
-                  )}
-                </div>
-              </div>
-
-              {/* Default Project Key */}
-              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-700">
+            <section className="max-w-3xl">
+              {/* Integration Card View (Default Marketplace-style Grid) */}
+              {!activeIntegrationDetail ? (
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Default Project Key</label>
-                  <input
-                    type="text"
-                    value={jiraProjectKey}
-                    onChange={(e) => handleProjectKeyChange(e.target.value)}
-                    placeholder="BUG or QA"
-                    className="input-field font-mono text-sm uppercase"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    The project code in Jira where new issues will be created (e.g. BUG, QA, PROJ).
-                  </p>
-                </div>
-
-                {/* Manual PAT Fallback Section */}
-                <details className="mt-4 rounded-lg border border-slate-200 p-4 text-xs dark:border-slate-800">
-                  <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
-                    Manual API Token Fallback (Alternative)
-                  </summary>
-                  <div className="mt-4 space-y-3">
+                  <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Jira Domain</label>
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Connect Apps & Backlogs</h3>
+                      <p className="text-xs text-slate-500">Select an integration to configure and push QA artifacts.</p>
+                    </div>
+                    <div className="relative w-full sm:w-64">
+                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
                       <input
                         type="text"
-                        value={jiraDomain}
-                        onChange={(e) => setJiraDomain(e.target.value)}
-                        placeholder="example.atlassian.net"
-                        className="input-field text-sm"
+                        value={integrationSearch}
+                        onChange={(e) => setIntegrationSearch(e.target.value)}
+                        placeholder="Search apps..."
+                        className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 placeholder-slate-400"
                       />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Atlassian Account Email</label>
-                      <input
-                        type="email"
-                        value={jiraEmail}
-                        onChange={(e) => setJiraEmail(e.target.value)}
-                        placeholder="qa@company.com"
-                        className="input-field text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Token</label>
-                      <input
-                        type="password"
-                        value={jiraToken}
-                        onChange={(e) => setJiraToken(e.target.value)}
-                        placeholder="ATATT3xFfGF0..."
-                        className="input-field font-mono text-sm"
-                      />
-                      <p className="mt-1 text-[11px] text-slate-400">
-                        Generate token at{" "}
-                        <a
-                          href="https://id.atlassian.com/manage-profile/security/api-tokens"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-indigo-600 underline"
-                        >
-                          id.atlassian.com
-                        </a>
-                      </p>
                     </div>
                   </div>
-                </details>
-              </div>
 
-              <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={handleTestJira}
-                  disabled={testingJira}
-                  className="btn-secondary flex items-center gap-1.5 text-xs"
-                >
-                  {testingJira ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {testingJira ? "Testing..." : "Test Connection"}
-                </button>
-                {!jiraAccessToken && (
-                  <button type="button" onClick={handleSaveJira} className="btn-primary flex items-center gap-1.5 text-xs">
-                    {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
-                    {savedJira ? "Saved" : "Save Jira Settings"}
-                  </button>
-                )}
-                {jiraConnected && !jiraAccessToken && (
-                  <button type="button" onClick={handleDisconnectJira} className="btn-secondary text-xs text-red-600 hover:text-red-700">
-                    Disconnect
-                  </button>
-                )}
-              </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {filteredIntegrations.map((app) => (
+                      <div
+                        key={app.id}
+                        onClick={() => setActiveIntegrationDetail(app.id)}
+                        className="group relative flex flex-col justify-between rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60 p-5 shadow-sm transition hover:border-indigo-300 dark:hover:border-indigo-600 hover:shadow-md cursor-pointer"
+                      >
+                        <div>
+                          <div className="flex items-start justify-between">
+                            <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                              {app.icon}
+                            </div>
+                            {app.connected ? (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50">
+                                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                                Connected
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                                Available
+                              </span>
+                            )}
+                          </div>
 
-              {/* Aksora Integration */}
-              <div className="mt-10 flex items-center gap-2">
-                <Share2 className="h-4 w-4 text-slate-500" />
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Aksora Integration</h3>
-                {aksoraConnected && (
-                  <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                    Connected
-                  </span>
-                )}
-              </div>
-              <p className="mt-2 text-sm text-slate-500">
-                Connect your Aksora workspace to sync AI-generated bugs, tasks, and test cases directly to Aksora.
-              </p>
+                          <div className="mt-4">
+                            <h4 className="text-sm font-semibold text-slate-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition flex items-center gap-2">
+                              {app.name}
+                              {app.badge && (
+                                <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                                  {app.badge}
+                                </span>
+                              )}
+                            </h4>
+                            <p className="mt-1.5 text-xs text-slate-500 dark:text-slate-400 leading-relaxed line-clamp-2">
+                              {app.description}
+                            </p>
+                          </div>
+                        </div>
 
-              <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-700">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Aksora Base URL</label>
-                  <input
-                    type="text"
-                    value={aksoraUrl}
-                    onChange={(e) => setAksoraUrl(e.target.value)}
-                    placeholder="https://aksora.com (or http://localhost:3000 for local)"
-                    className="input-field text-sm"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    The root URL of your Aksora instance where the API is hosted.
-                  </p>
+                        <div className="mt-5 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-3">
+                          <span className="text-[11px] font-medium text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300">
+                            {app.connected ? "Configure Settings" : "Set up"}
+                          </span>
+                          <button
+                            type="button"
+                            className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
+                              app.connected
+                                ? "bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300"
+                                : "bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm"
+                            }`}
+                          >
+                            {app.connected ? "Configure" : "Connect"}
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              ) : (
+                /* Detail Configuration View */
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Key</label>
-                  <input
-                    type="password"
-                    value={aksoraKey}
-                    onChange={(e) => setAksoraKey(e.target.value)}
-                    placeholder="eyJhbGciOiJIUzI1NiIsIn..."
-                    className="input-field font-mono text-sm"
-                  />
-                  <p className="mt-1 text-[11px] text-slate-400">
-                    Generate an API Key from Aksora under Settings &gt; API Keys.
-                  </p>
-                  {aksoraConnected && (
-                    <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Key saved in this browser (hidden)</p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveIntegrationDetail(null)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-indigo-600 dark:text-slate-400 dark:hover:text-white mb-6 transition"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5" />
+                    Back to All Integrations
+                  </button>
+
+                  {activeIntegrationDetail === "jira" && (
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+                      <div className="flex items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-100 dark:border-slate-700">
+                            <svg viewBox="0 0 24 24" className="h-8 w-8 text-[#0052CC]" fill="currentColor">
+                              <path d="M11.53 2c0 2.4-1.97 4.35-4.4 4.35H2.8v4.33h4.33c2.4 0 4.4 1.95 4.4 4.35v6.97h4.34v-6.97c0-2.4 1.96-4.35 4.36-4.35h4.37V6.35h-4.37c-2.4 0-4.36-1.95-4.36-4.35V2h-4.34z"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-slate-900 dark:text-white">Atlassian Jira Cloud</h3>
+                            <p className="text-xs text-slate-500">Push AI-generated tickets directly to your Jira project backlog.</p>
+                          </div>
+                        </div>
+                        {jiraConnected && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Connected
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 1-Click OAuth Card */}
+                      <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50/50 p-5 dark:border-slate-800 dark:bg-slate-900/50">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <h4 className="text-xs font-semibold text-slate-900 dark:text-white">
+                              1-Click Atlassian OAuth 2.0
+                            </h4>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {jiraAccessToken
+                                ? `Connected to ${jiraSiteName || jiraDomain || "Jira Cloud"}`
+                                : "Connect with your Atlassian account in one click."}
+                            </p>
+                          </div>
+                          {jiraAccessToken ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleDisconnectJira}
+                                className="inline-flex items-center gap-1 rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900/40 dark:bg-slate-900 dark:text-rose-400"
+                              >
+                                <Unlink className="h-3.5 w-3.5" />
+                                Disconnect
+                              </button>
+                            </div>
+                          ) : (
+                            <a
+                              href="/api/jira/oauth/login"
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            >
+                              <ExternalLink className="h-3.5 w-3.5" />
+                              Connect Jira Cloud
+                            </a>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Default Project Key */}
+                      <div className="mt-6 space-y-4 border-t border-slate-200 pt-6 dark:border-slate-800">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Default Project Key</label>
+                          <input
+                            type="text"
+                            value={jiraProjectKey}
+                            onChange={(e) => handleProjectKeyChange(e.target.value)}
+                            placeholder="BUG or QA"
+                            className="input-field font-mono text-sm uppercase max-w-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            The project code in Jira where new issues will be created (e.g. BUG, QA, PROJ).
+                          </p>
+                        </div>
+
+                        {/* Manual PAT Fallback Section */}
+                        <details className="mt-4 rounded-lg border border-slate-200 p-4 text-xs dark:border-slate-800">
+                          <summary className="cursor-pointer font-medium text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white">
+                            Manual API Token Fallback (Alternative)
+                          </summary>
+                          <div className="mt-4 space-y-3 max-w-lg">
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Jira Domain</label>
+                              <input
+                                type="text"
+                                value={jiraDomain}
+                                onChange={(e) => setJiraDomain(e.target.value)}
+                                placeholder="example.atlassian.net"
+                                className="input-field text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Atlassian Account Email</label>
+                              <input
+                                type="email"
+                                value={jiraEmail}
+                                onChange={(e) => setJiraEmail(e.target.value)}
+                                placeholder="qa@company.com"
+                                className="input-field text-sm"
+                              />
+                            </div>
+                            <div>
+                              <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Token</label>
+                              <input
+                                type="password"
+                                value={jiraToken}
+                                onChange={(e) => setJiraToken(e.target.value)}
+                                placeholder="ATATT3xFfGF0..."
+                                className="input-field font-mono text-sm"
+                              />
+                              <p className="mt-1 text-[11px] text-slate-400">
+                                Generate token at{" "}
+                                <a
+                                  href="https://id.atlassian.com/manage-profile/security/api-tokens"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-indigo-600 underline"
+                                >
+                                  id.atlassian.com
+                                </a>
+                              </p>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={handleTestJira}
+                          disabled={testingJira}
+                          className="btn-secondary flex items-center gap-1.5 text-xs"
+                        >
+                          {testingJira ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          {testingJira ? "Testing..." : "Test Connection"}
+                        </button>
+                        {!jiraAccessToken && (
+                          <button type="button" onClick={handleSaveJira} className="btn-primary flex items-center gap-1.5 text-xs">
+                            {savedJira ? <Check className="h-3.5 w-3.5" /> : null}
+                            {savedJira ? "Saved" : "Save Jira Settings"}
+                          </button>
+                        )}
+                        {jiraConnected && !jiraAccessToken && (
+                          <button type="button" onClick={handleDisconnectJira} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeIntegrationDetail === "aksora" && (
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+                      <div className="flex items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-lg shadow-sm">
+                            A
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-slate-900 dark:text-white">Aksora Integration</h3>
+                            <p className="text-xs text-slate-500">Sync AI-generated bugs, tasks, and test cases directly to Aksora.</p>
+                          </div>
+                        </div>
+                        {aksoraConnected && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200">
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                            Connected
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-6 space-y-4 max-w-lg">
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">Aksora Base URL</label>
+                          <input
+                            type="text"
+                            value={aksoraUrl}
+                            onChange={(e) => setAksoraUrl(e.target.value)}
+                            placeholder="https://aksora.com (or http://localhost:3000 for local)"
+                            className="input-field text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            The root URL of your Aksora instance where the API is hosted.
+                          </p>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-xs font-medium text-slate-700 dark:text-slate-300">API Key</label>
+                          <input
+                            type="password"
+                            value={aksoraKey}
+                            onChange={(e) => setAksoraKey(e.target.value)}
+                            placeholder="eyJhbGciOiJIUzI1NiIsIn..."
+                            className="input-field font-mono text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Generate an API Key from Aksora under Settings &gt; API Keys.
+                          </p>
+                          {aksoraConnected && (
+                            <p className="mt-1 text-[11px] text-emerald-600 dark:text-emerald-400">✓ Key saved in this browser (hidden)</p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={handleTestAksora}
+                          disabled={testingAksora}
+                          className="btn-secondary flex items-center gap-1.5 text-xs"
+                        >
+                          {testingAksora ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          {testingAksora ? "Testing..." : "Test Connection"}
+                        </button>
+                        <button type="button" onClick={handleSaveAksora} className="btn-primary flex items-center gap-1.5 text-xs">
+                          {savedAksora ? <Check className="h-3.5 w-3.5" /> : null}
+                          {savedAksora ? "Saved" : "Save Aksora Settings"}
+                        </button>
+                        {aksoraConnected && (
+                          <button type="button" onClick={handleClearAksora} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   )}
                 </div>
-              </div>
-
-              <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={handleTestAksora}
-                  disabled={testingAksora}
-                  className="btn-secondary flex items-center gap-1.5 text-xs"
-                >
-                  {testingAksora ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                  {testingAksora ? "Testing..." : "Test Connection"}
-                </button>
-                <button type="button" onClick={handleSaveAksora} className="btn-primary flex items-center gap-1.5 text-xs">
-                  {savedAksora ? <Check className="h-3.5 w-3.5" /> : null}
-                  {savedAksora ? "Saved" : "Save Aksora Settings"}
-                </button>
-                {aksoraConnected && (
-                  <button type="button" onClick={handleClearAksora} className="btn-secondary text-xs text-red-600 hover:text-red-700">
-                    Disconnect
-                  </button>
-                )}
-              </div>
+              )}
             </section>
           )}
         </main>
