@@ -5,18 +5,32 @@ import { validatedAxiosRequest } from '@/lib/outbound-url';
 export async function POST(request: Request) {
   try {
     if (!(await auth())?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
-    const { domain, email, token } = await request.json();
+    const { auth_type, access_token, cloud_id, domain, email, token } = await request.json();
 
-    if (!domain || !email || !token) {
+    const isOAuth = auth_type === 'oauth2' && !!access_token;
+    if (!isOAuth && (!domain || !email || !token)) {
       return NextResponse.json({ detail: 'Domain, email, and API token are required' }, { status: 400 });
     }
 
-    const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
-    const authHeader = Buffer.from(`${email.trim()}:${token.trim()}`).toString('base64');
+    let url = '';
+    const headers: Record<string, string> = { Accept: 'application/json' };
 
-    const res = await validatedAxiosRequest(`https://${cleanDomain}/rest/api/3/myself`, {
+    if (isOAuth) {
+      if (!cloud_id || !/^[A-Za-z0-9-]+$/.test(cloud_id)) {
+        return NextResponse.json({ detail: 'Jira OAuth workspace is invalid. Reconnect Jira in Settings.' }, { status: 400 });
+      }
+      url = `https://api.atlassian.com/ex/jira/${cloud_id}/rest/api/3/myself`;
+      headers['Authorization'] = `Bearer ${access_token.trim()}`;
+    } else {
+      const cleanDomain = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+      const authHeader = Buffer.from(`${email.trim()}:${token.trim()}`).toString('base64');
+      url = `https://${cleanDomain}/rest/api/3/myself`;
+      headers['Authorization'] = `Basic ${authHeader}`;
+    }
+
+    const res = await validatedAxiosRequest(url, {
       method: 'GET',
-      headers: { Authorization: `Basic ${authHeader}`, Accept: 'application/json' },
+      headers,
       timeout: 10000,
     });
     if (res.status >= 400) throw new Error('Jira rejected the request');

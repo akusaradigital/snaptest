@@ -70,7 +70,11 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("jira_config") || "{}");
-      setJiraConfigured(!!(saved.domain && saved.email && saved.token && saved.project_key));
+      const isConnected = !!(
+        (saved.access_token || (saved.domain && saved.email && saved.token)) &&
+        saved.project_key
+      );
+      setJiraConfigured(isConnected);
     } catch {
       setJiraConfigured(false);
     }
@@ -314,7 +318,8 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     let config: any = {};
     try { config = JSON.parse(savedJira); } catch {}
 
-    if (!config.domain || !config.email || !config.token || !config.project_key) {
+    const isOAuth = config.auth_type === "oauth2" && !!config.access_token && !!config.cloud_id;
+    if (!config.project_key || (!isOAuth && (!config.domain || !config.email || !config.token))) {
       toast.error("Jira configuration is incomplete. Please check Settings.");
       return;
     }
@@ -323,11 +328,26 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     setJiraLink(null);
 
     try {
+      if (isOAuth && config.expires_at && Date.now() >= Number(config.expires_at) - 60_000) {
+        const refreshRes = await fetch("/api/jira/oauth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: config.refresh_token }),
+        });
+        const refreshed = await refreshRes.json();
+        if (!refreshRes.ok) throw new Error(refreshed.detail || "Jira authorization expired");
+        config = { ...config, ...refreshed };
+        localStorage.setItem("jira_config", JSON.stringify(config));
+      }
+
       const res = await fetch("/api/jira/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...result,
+          auth_type: config.auth_type,
+          access_token: config.access_token,
+          cloud_id: config.cloud_id,
           jira_domain: config.domain,
           jira_email: config.email,
           jira_token: config.token,
@@ -731,6 +751,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
                     }
                     onPushToJira={handlePushToJira}
                     jiraConfigured={jiraConfigured}
+                    pushingJira={pushingJira}
                     onUpdateTicket={handleUpdateTicket}
                   />
                   {msg.role === "assistant" && msg.ticket_result && (
@@ -838,6 +859,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
                 msg={latestTicketMsg}
                 onPushToJira={handlePushToJira}
                 jiraConfigured={jiraConfigured}
+                pushingJira={pushingJira}
                 onUpdateTicket={handleUpdateTicket}
               />
             </div>

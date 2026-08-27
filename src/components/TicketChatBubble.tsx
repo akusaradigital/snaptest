@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2 } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState } from "react";
 import toast from "react-hot-toast";
@@ -12,12 +12,14 @@ export default function TicketChatBubble({
   onPushToJira,
   readOnly = false,
   jiraConfigured = true,
+  pushingJira = false,
   onUpdateTicket,
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
   readOnly?: boolean;
   jiraConfigured?: boolean;
+  pushingJira?: boolean;
   onUpdateTicket?: (messageId: string, updates: Record<string, any>) => void;
 }) {
   const [copiedAll, setCopiedAll] = useState(false);
@@ -201,16 +203,27 @@ export default function TicketChatBubble({
                 <Check className="w-3.5 h-3.5 text-emerald-600" />
                 <span>Pushed ({msg.ticket_result.jira_key})</span>
               </a>
+            ) : !readOnly && !jiraConfigured ? (
+              <a
+                href="/settings?tab=integrations"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition"
+              >
+                <Ticket className="w-3.5 h-3.5 text-amber-600" />
+                <span>Connect Jira</span>
+              </a>
             ) : !readOnly && onPushToJira ? (
               <button
                 type="button"
                 onClick={() => onPushToJira(msg.ticket_result!)}
-                disabled={!jiraConfigured}
-                title={jiraConfigured ? undefined : "Configure Jira in Settings first"}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
+                disabled={pushingJira}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-indigo-50"
               >
-                <Ticket className="w-3.5 h-3.5 text-indigo-600" />
-                <span>Push to Jira</span>
+                {pushingJira ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                ) : (
+                  <Ticket className="w-3.5 h-3.5 text-indigo-600" />
+                )}
+                <span>{pushingJira ? "Pushing to Jira..." : "Push to Jira"}</span>
               </button>
             ) : null}
 
