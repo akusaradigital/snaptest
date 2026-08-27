@@ -1,4 +1,4 @@
-const PUBLIC_EXACT = new Set(["/", "/login", "/api/health"]);
+const PUBLIC_EXACT = new Set(["/", "/login", "/api/health", "/privacy", "/terms"]);
 const PUBLIC_PREFIXES = ["/share/", "/api/auth/", "/api/share/", "/_next/"];
 const STATIC_ASSET = /\.[a-zA-Z0-9]+$/;
 
