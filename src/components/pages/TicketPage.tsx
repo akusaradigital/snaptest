@@ -579,11 +579,19 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       if (!res.ok) throw new Error(data.detail || "Failed to generate ticket");
 
       const ticketResult = toTicketResult(data);
+      const isActualTicket = Boolean(
+        ticketResult.title ||
+        ticketResult.description ||
+        ticketResult.expected_result ||
+        ticketResult.actual_result ||
+        ticketResult.has_ticket_data === true
+      );
+
       const botMsg: ChatMessage = {
         id: "msg_" + Date.now(),
         role: "assistant",
         content: data.assistant_reply || "Here is the updated Jira ticket.",
-        ticket_result: ticketResult.has_ticket_data !== false ? ticketResult : undefined,
+        ticket_result: isActualTicket ? ticketResult : undefined,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 

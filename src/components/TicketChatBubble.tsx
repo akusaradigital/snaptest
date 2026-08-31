@@ -50,9 +50,24 @@ export default function TicketChatBubble({
     toast.success("Ticket updated");
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async () => {
     try {
-      await navigator.clipboard.writeText(text);
+      let text = msg.ticket_result?.markdown || "";
+      if (!text && msg.ticket_result) {
+        const lines: string[] = [];
+        if (msg.ticket_result.issue_type) lines.push(`**Issue Type:** ${msg.ticket_result.issue_type}`);
+        if (msg.ticket_result.title) lines.push(`**Title:** ${msg.ticket_result.title}`);
+        if (msg.ticket_result.description) lines.push(`\n**Description:**\n${msg.ticket_result.description}`);
+        if (msg.ticket_result.current_behavior) lines.push(`\n**Current Behavior:**\n${msg.ticket_result.current_behavior}`);
+        if (msg.ticket_result.expected_result) lines.push(`\n**Expected Result:**\n${msg.ticket_result.expected_result}`);
+        if (msg.ticket_result.actual_result) lines.push(`\n**Actual Result:**\n${msg.ticket_result.actual_result}`);
+        if (msg.ticket_result.acceptance_criteria?.length) {
+          lines.push(`\n**Acceptance Criteria:**\n${msg.ticket_result.acceptance_criteria.map((c: string) => `- [ ] ${c}`).join('\n')}`);
+        }
+        if (msg.ticket_result.evidence) lines.push(`\n**Evidence:**\n${msg.ticket_result.evidence}`);
+        text = lines.join('\n');
+      }
+      await navigator.clipboard.writeText(text || msg.content || "");
       setCopiedAll(true);
       setTimeout(() => setCopiedAll(false), 2000);
       toast.success("Copied ticket to clipboard!");
@@ -62,6 +77,15 @@ export default function TicketChatBubble({
   };
 
   const isUser = msg.role === "user";
+  const hasTicket = Boolean(
+    !isUser &&
+    msg.ticket_result &&
+    (msg.ticket_result.has_ticket_data !== false ||
+     msg.ticket_result.title ||
+     msg.ticket_result.description ||
+     msg.ticket_result.expected_result ||
+     msg.ticket_result.issue_type)
+  );
 
   return (
     <div className={`p-4 rounded-2xl text-sm ${
@@ -75,7 +99,7 @@ export default function TicketChatBubble({
         </div>
       )}
 
-      {!isUser && msg.ticket_result && msg.ticket_result.has_ticket_data !== false ? (
+      {hasTicket && msg.ticket_result ? (
         <div className="space-y-3.5 leading-relaxed">
           {msg.content && <p className="text-slate-600 dark:text-slate-300 italic mb-3">{msg.content}</p>}
 
@@ -306,7 +330,7 @@ export default function TicketChatBubble({
 
             <button
               type="button"
-              onClick={() => copyToClipboard(msg.ticket_result!.markdown)}
+              onClick={copyToClipboard}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm"
             >
               {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
