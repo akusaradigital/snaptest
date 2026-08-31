@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
@@ -27,6 +27,9 @@ export default function TicketChatBubble({
   onPushToAksora,
   aksoraConfigured = true,
   pushingAksora = false,
+  onSyncToSheets,
+  sheetsConfigured = true,
+  syncingSheets = false,
   onUpdateTicket,
   allSessions = [],
   currentSessionId,
@@ -41,6 +44,9 @@ export default function TicketChatBubble({
   onPushToAksora?: (ticketResult: Record<string, any>) => void;
   aksoraConfigured?: boolean;
   pushingAksora?: boolean;
+  onSyncToSheets?: (ticketResult: Record<string, any>) => void;
+  sheetsConfigured?: boolean;
+  syncingSheets?: boolean;
   onUpdateTicket?: (messageId: string, updates: Record<string, any>) => void;
   allSessions?: Array<{ id: string; title: string; messages: ChatMessage[] }>;
   currentSessionId?: string | null;
@@ -172,6 +178,29 @@ export default function TicketChatBubble({
     const jsonStr = JSON.stringify(msg.ticket_result || {}, null, 2);
     const title = (msg.ticket_result?.title || "ticket").replace(/[^a-z0-9]/gi, "_").toLowerCase();
     downloadFile(jsonStr, `${title}.json`, "application/json");
+  };
+
+  const handleDownloadCsv = () => {
+    const t = msg.ticket_result || {};
+    const headers = ["Issue Type", "Priority", "Title", "Assignee", "Component", "Description", "Expected Result", "Actual Result", "Acceptance Criteria", "Evidence", "Jira Key"];
+    const escapeCsv = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
+    const acStr = Array.isArray(t.acceptance_criteria) ? t.acceptance_criteria.join("; ") : (t.acceptance_criteria || "");
+    const row = [
+      escapeCsv(t.issue_type || "Bug"),
+      escapeCsv(t.priority || "P1"),
+      escapeCsv(t.title || ""),
+      escapeCsv(t.assignee_name || "Unassigned"),
+      escapeCsv(t.component || ""),
+      escapeCsv(t.description || ""),
+      escapeCsv(t.expected_result || ""),
+      escapeCsv(t.actual_result || t.current_behavior || ""),
+      escapeCsv(acStr),
+      escapeCsv(t.evidence || ""),
+      escapeCsv(t.jira_key || ""),
+    ];
+    const csvContent = headers.join(",") + "\n" + row.join(",");
+    const title = (t.title || "ticket").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    downloadFile(csvContent, `${title}.csv`, "text/csv");
   };
 
   const toggleIssueType = (newType: string) => {
@@ -779,6 +808,48 @@ export default function TicketChatBubble({
                 </button>
               ) : null}
 
+              {/* Google Sheets Sync Button */}
+              {ticket.sheets_synced ? (
+                ticket.sheets_url ? (
+                  <a
+                    href={ticket.sheets_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Synced to Sheet</span>
+                  </a>
+                ) : (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Synced to Sheet</span>
+                  </span>
+                )
+              ) : !readOnly && !sheetsConfigured ? (
+                <a
+                  href="/settings?tab=integrations"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Connect Sheets</span>
+                </a>
+              ) : !readOnly && onSyncToSheets ? (
+                <button
+                  type="button"
+                  onClick={() => onSyncToSheets(ticket)}
+                  disabled={syncingSheets}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {syncingSheets ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+                  ) : (
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                  )}
+                  <span>{syncingSheets ? "Syncing..." : "Sync to Sheet"}</span>
+                </button>
+              ) : null}
+
               {!readOnly && onUpdateTicket && (
                 <button
                   type="button"
@@ -826,6 +897,14 @@ export default function TicketChatBubble({
                 title="Download as JSON (.json)"
               >
                 <span>JSON</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDownloadCsv}
+                className="px-2 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                title="Download as CSV spreadsheet (.csv)"
+              >
+                <span>CSV</span>
               </button>
               <button
                 type="button"

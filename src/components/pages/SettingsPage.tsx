@@ -30,7 +30,7 @@ interface SettingsPageProps {
 }
 
 type SettingSection = "ai" | "generation" | "workspace" | "integrations";
-type IntegrationId = "jira" | "aksora";
+type IntegrationId = "jira" | "aksora" | "sheets";
 
 const SECTIONS: { id: SettingSection; label: string; description: string }[] = [
   { id: "ai", label: "AI & Models", description: "Connect your API keys and pick the model for AI-powered test generation." },
@@ -72,6 +72,14 @@ export default function SettingsPage({
   const [testingAksora, setTestingAksora] = useState(false);
   const [savedAksora, setSavedAksora] = useState(false);
   const [aksoraConnected, setAksoraConnected] = useState(false);
+
+  // Google Sheets config state
+  const [sheetsWebhookUrl, setSheetsWebhookUrl] = useState("");
+  const [sheetsSpreadsheetUrl, setSheetsSpreadsheetUrl] = useState("");
+  const [sheetsTabName, setSheetsTabName] = useState("QA Tickets");
+  const [testingSheets, setTestingSheets] = useState(false);
+  const [savedSheets, setSavedSheets] = useState(false);
+  const [sheetsConnected, setSheetsConnected] = useState(false);
 
   // Check URL params for OAuth results
   useEffect(() => {
@@ -132,6 +140,17 @@ export default function SettingsPage({
         setAksoraUrl(parsed.url || "");
         setAksoraKey(parsed.apiKey || "");
         setAksoraConnected(!!(parsed.apiKey && parsed.url));
+      } catch { /* ignore */ }
+    }
+
+    const savedSheetsConfig = localStorage.getItem("sheets_config");
+    if (savedSheetsConfig) {
+      try {
+        const parsed = JSON.parse(savedSheetsConfig);
+        setSheetsWebhookUrl(parsed.webhook_url || "");
+        setSheetsSpreadsheetUrl(parsed.sheet_url || "");
+        setSheetsTabName(parsed.sheet_name || "QA Tickets");
+        setSheetsConnected(!!parsed.webhook_url);
       } catch { /* ignore */ }
     }
   }, []);
@@ -287,6 +306,53 @@ export default function SettingsPage({
     }
   };
 
+  const handleSaveSheets = () => {
+    localStorage.setItem(
+      "sheets_config",
+      JSON.stringify({
+        webhook_url: sheetsWebhookUrl.trim(),
+        sheet_url: sheetsSpreadsheetUrl.trim(),
+        sheet_name: sheetsTabName.trim() || "QA Tickets",
+      })
+    );
+    setSavedSheets(true);
+    setSheetsConnected(!!sheetsWebhookUrl.trim());
+    setTimeout(() => setSavedSheets(false), 2000);
+    toast.success("Google Sheets configuration saved");
+  };
+
+  const handleClearSheets = () => {
+    localStorage.removeItem("sheets_config");
+    setSheetsWebhookUrl("");
+    setSheetsSpreadsheetUrl("");
+    setSheetsTabName("QA Tickets");
+    setSheetsConnected(false);
+    toast.success("Google Sheets disconnected");
+  };
+
+  const handleTestSheets = async () => {
+    if (!sheetsWebhookUrl) {
+      toast.error("Please enter your Google Sheets Webhook URL first");
+      return;
+    }
+    setTestingSheets(true);
+    try {
+      const res = await axios.post("/api/sheets/test", {
+        webhook_url: sheetsWebhookUrl.trim(),
+      });
+      if (res.data.valid) {
+        toast.success(res.data.message || "Connected to Google Spreadsheet!");
+        handleSaveSheets();
+      } else {
+        toast.error(res.data.detail || "Spreadsheet webhook test failed");
+      }
+    } catch (err: any) {
+      toast.error(err.response?.data?.detail || err.message || "Failed to connect to Google Sheets webhook");
+    } finally {
+      setTestingSheets(false);
+    }
+  };
+
   const saveSettings = (key: string, value: any) => {
     const savedVal = localStorage.getItem("snaptest_settings");
     const current = savedVal ? JSON.parse(savedVal) : {};
@@ -328,6 +394,20 @@ export default function SettingsPage({
       icon: (
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-tr from-purple-600 to-indigo-600 text-white font-bold text-base shadow-sm">
           A
+        </div>
+      ),
+    },
+    {
+      id: "sheets" as IntegrationId,
+      name: "Google Sheets",
+      description: "Automatically log and sync all QA issues, bug reports, and test cases directly into a Google Spreadsheet.",
+      connected: sheetsConnected,
+      badge: sheetsConnected ? "Webhook" : null,
+      icon: (
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-600 text-white font-bold text-base shadow-sm">
+          <svg viewBox="0 0 24 24" className="w-5 h-5" fill="currentColor">
+            <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2zm0-4H7V7h10v2zm0 8H7v-2h10v2z"/>
+          </svg>
         </div>
       ),
     },
@@ -776,6 +856,152 @@ export default function SettingsPage({
                         </button>
                         {aksoraConnected && (
                           <button type="button" onClick={handleClearAksora} className="btn-secondary text-xs text-red-600 hover:text-red-700">
+                            Disconnect
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {activeIntegrationDetail === "sheets" && (
+                    <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-6 shadow-sm">
+                      <div className="flex items-center justify-between pb-6 border-b border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-600 text-white font-bold text-lg shadow-sm">
+                            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="currentColor">
+                              <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2zm0-4H7V7h10v2zm0 8H7v-2h10v2z"/>
+                            </svg>
+                          </div>
+                          <div>
+                            <h3 className="text-base font-semibold text-slate-900 dark:text-white">Google Sheets Integration</h3>
+                            <p className="text-xs text-slate-500">Sync QA bug reports and test tickets directly to a live spreadsheet</p>
+                          </div>
+                        </div>
+                        {sheetsConnected && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-900/50">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                            Connected
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-6 space-y-4 max-w-xl">
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Google Apps Script Webhook URL <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="url"
+                            value={sheetsWebhookUrl}
+                            onChange={(e) => setSheetsWebhookUrl(e.target.value)}
+                            placeholder="https://script.google.com/macros/s/.../exec"
+                            className="input-field font-mono text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Deploy a Google Apps Script Web App (or Integromat / Zapier webhook) that receives JSON to append rows.
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Target Sheet / Tab Name
+                          </label>
+                          <input
+                            type="text"
+                            value={sheetsTabName}
+                            onChange={(e) => setSheetsTabName(e.target.value)}
+                            placeholder="QA Tickets"
+                            className="input-field text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            The name of the worksheet/tab where tickets will be recorded.
+                          </p>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                            Google Sheet View Link (Optional)
+                          </label>
+                          <input
+                            type="url"
+                            value={sheetsSpreadsheetUrl}
+                            onChange={(e) => setSheetsSpreadsheetUrl(e.target.value)}
+                            placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                            className="input-field font-mono text-sm"
+                          />
+                          <p className="mt-1 text-[11px] text-slate-400">
+                            Direct URL to quickly open your Google Sheet from the chat bubble.
+                          </p>
+                        </div>
+
+                        <details className="group rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-3 text-xs">
+                          <summary className="cursor-pointer font-semibold text-indigo-600 dark:text-indigo-400 flex items-center justify-between">
+                            <span>How to create Google Apps Script Webhook (Copy-paste code)</span>
+                            <span className="text-[10px] text-slate-400 group-open:rotate-180 transition-transform">▼</span>
+                          </summary>
+                          <div className="mt-2.5 space-y-2 text-slate-600 dark:text-slate-300">
+                            <ol className="list-decimal list-inside space-y-1 text-[11px]">
+                              <li>Open your Google Sheet, click <strong>Extensions &gt; Apps Script</strong>.</li>
+                              <li>Replace the code with the script below and click <strong>Save</strong>.</li>
+                              <li>Click <strong>Deploy &gt; New deployment</strong>, select type <strong>Web app</strong>.</li>
+                              <li>Set <em>Execute as:</em> <strong>Me</strong>, and <em>Who has access:</em> <strong>Anyone</strong>.</li>
+                              <li>Click <strong>Deploy</strong> and copy the <strong>Web app URL</strong> into the field above.</li>
+                            </ol>
+                            <div className="relative">
+                              <pre className="bg-slate-900 text-slate-100 p-3 rounded-lg font-mono text-[10px] overflow-x-auto">
+{`function doPost(e) {
+  try {
+    var data = JSON.parse(e.postData.contents);
+    if (data.action === "test") {
+      return ContentService.createTextOutput(JSON.stringify({ valid: true, message: "Connected successfully!" })).setMimeType(ContentService.MimeType.JSON);
+    }
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(data.sheet_name || "QA Tickets");
+    if (!sheet) {
+      sheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(data.sheet_name || "QA Tickets");
+      sheet.appendRow(["Date", "Issue Type", "Priority", "Title", "Assignee", "Component", "Description", "Expected Result", "Actual Result", "Acceptance Criteria", "Evidence", "Jira Key", "Timestamp"]);
+    }
+    sheet.appendRow([
+      data.date || new Date().toLocaleDateString(),
+      data.issue_type || "",
+      data.priority || "",
+      data.title || "",
+      data.assignee || "",
+      data.component || "",
+      data.description || "",
+      data.expected_result || "",
+      data.actual_result || data.current_behavior || "",
+      data.acceptance_criteria || "",
+      data.evidence || "",
+      data.jira_key || "",
+      data.timestamp || new Date().toISOString()
+    ]);
+    return ContentService.createTextOutput(JSON.stringify({ success: true, sheet_url: SpreadsheetApp.getActiveSpreadsheet().getUrl() })).setMimeType(ContentService.MimeType.JSON);
+  } catch (err) {
+    return ContentService.createTextOutput(JSON.stringify({ success: false, detail: err.message })).setMimeType(ContentService.MimeType.JSON);
+  }
+}`}
+                              </pre>
+                            </div>
+                          </div>
+                        </details>
+                      </div>
+
+                      <div className="mt-6 flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-6 dark:border-slate-800">
+                        <button
+                          type="button"
+                          onClick={handleTestSheets}
+                          disabled={testingSheets}
+                          className="btn-secondary flex items-center gap-1.5 text-xs"
+                        >
+                          {testingSheets ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          {testingSheets ? "Testing..." : "Test Connection"}
+                        </button>
+                        <button type="button" onClick={handleSaveSheets} className="btn-primary flex items-center gap-1.5 text-xs">
+                          {savedSheets ? <Check className="h-3.5 w-3.5" /> : null}
+                          {savedSheets ? "Saved" : "Save Sheets Settings"}
+                        </button>
+                        {sheetsConnected && (
+                          <button type="button" onClick={handleClearSheets} className="btn-secondary text-xs text-red-600 hover:text-red-700">
                             Disconnect
                           </button>
                         )}

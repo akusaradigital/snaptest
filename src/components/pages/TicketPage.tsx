@@ -19,6 +19,7 @@ import {
   Search,
   RotateCcw,
   Edit2,
+  FileSpreadsheet,
 } from "lucide-react";
 
 interface TicketPageProps {
@@ -78,6 +79,8 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [jiraMembers, setJiraMembers] = useState<Array<{ accountId: string; displayName: string; emailAddress?: string; avatarUrl?: string }>>([]);
   const [pushingAksora, setPushingAksora] = useState(false);
   const [aksoraConfigured, setAksoraConfigured] = useState(false);
+  const [syncingSheets, setSyncingSheets] = useState(false);
+  const [sheetsConfigured, setSheetsConfigured] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -121,6 +124,12 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       setAksoraConfigured(!!(saved.apiKey && saved.url));
     } catch {
       setAksoraConfigured(false);
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem("sheets_config") || "{}");
+      setSheetsConfigured(!!saved.webhook_url);
+    } catch {
+      setSheetsConfigured(false);
     }
   }, []);
 
@@ -571,6 +580,118 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     }
   };
 
+  const handleSyncToSheets = async (result: Record<string, any>) => {
+    const savedSheets = localStorage.getItem("sheets_config");
+    if (!savedSheets) {
+      toast.error("Please configure Google Sheets integration in Settings first.");
+      return;
+    }
+    let config: any = {};
+    try { config = JSON.parse(savedSheets); } catch {}
+
+    if (!config.webhook_url) {
+      toast.error("Google Sheets Webhook URL is missing. Please check Settings.");
+      return;
+    }
+
+    setSyncingSheets(true);
+
+    try {
+      const res = await fetch("/api/sheets/append", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          webhook_url: config.webhook_url,
+          sheet_url: config.sheet_url,
+          sheet_name: config.sheet_name || "QA Tickets",
+          ticket: result,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Failed to sync to Google Sheets");
+
+      toast.success("Synced to Google Spreadsheet!");
+
+      if (activeSessionId) {
+        const nextSessions = sessions.map(s => {
+          if (s.id !== activeSessionId) return s;
+          const nextMessages = s.messages.map(m => {
+            if (m.role !== "assistant" || !m.ticket_result || m.ticket_result !== result) return m;
+            return { ...m, ticket_result: { ...m.ticket_result, sheets_synced: true, sheets_url: data.sheet_url || config.sheet_url || undefined } };
+          });
+          return { ...s, messages: nextMessages };
+        });
+        const updatedTarget = nextSessions.find(s => s.id === activeSessionId);
+        saveSessionsToStorage(nextSessions, updatedTarget);
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync to Google Sheets");
+    } finally {
+      setSyncingSheets(false);
+    }
+  };
+
+  const handleBatchSyncToSheets = async () => {
+    if (!activeSession) return;
+    const unsyncedTickets = activeSession.messages
+      .filter(m => m.role === "assistant" && m.ticket_result && !m.ticket_result.sheets_synced)
+      .map(m => m.ticket_result!);
+
+    if (unsyncedTickets.length === 0) {
+      toast.success("All tickets in this chat are already synced to Google Sheets!");
+      return;
+    }
+
+    const savedSheets = localStorage.getItem("sheets_config");
+    if (!savedSheets) {
+      toast.error("Please configure Google Sheets integration in Settings first.");
+      return;
+    }
+    const config = JSON.parse(savedSheets || "{}");
+    if (!config.webhook_url) {
+      toast.error("Google Sheets Webhook URL is missing. Please check Settings.");
+      return;
+    }
+
+    setSyncingSheets(true);
+    let successCount = 0;
+
+    for (const t of unsyncedTickets) {
+      try {
+        const res = await fetch("/api/sheets/append", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            webhook_url: config.webhook_url,
+            sheet_url: config.sheet_url,
+            sheet_name: config.sheet_name || "QA Tickets",
+            ticket: t,
+          }),
+        });
+        if (res.ok) successCount++;
+      } catch {}
+    }
+
+    setSyncingSheets(false);
+    if (successCount > 0) {
+      toast.success(`Synced ${successCount} ticket(s) to Google Sheets!`);
+      // Update session state
+      const nextSessions = sessions.map(s => {
+        if (s.id !== activeSessionId) return s;
+        const nextMessages = s.messages.map(m => {
+          if (m.role !== "assistant" || !m.ticket_result) return m;
+          return { ...m, ticket_result: { ...m.ticket_result, sheets_synced: true, sheets_url: config.sheet_url || undefined } };
+        });
+        return { ...s, messages: nextMessages };
+      });
+      const updatedTarget = nextSessions.find(s => s.id === activeSessionId);
+      saveSessionsToStorage(nextSessions, updatedTarget);
+    } else {
+      toast.error("Failed to sync tickets to Google Sheets");
+    }
+  };
+
   // Sends `messagesForRequest` (full conversation so far) to the agent and appends the reply
   // to the session. Shared by handleSendMessage (new user turn) and handleRegenerate (retry last turn).
   const requestAssistantReply = async (
@@ -927,6 +1048,19 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           </div>
 
           <div className="flex items-center gap-2">
+            {sheetsConfigured && messages.some(m => m.ticket_result) && (
+              <button
+                type="button"
+                onClick={handleBatchSyncToSheets}
+                disabled={syncingSheets}
+                className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition font-medium disabled:opacity-50"
+                title="Sync all tickets in this chat to Google Sheets"
+              >
+                {syncingSheets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />}
+                <span>{syncingSheets ? "Syncing..." : "Sync All to Sheets"}</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={handleCreateNewSession}
@@ -985,6 +1119,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     onPushToAksora={handlePushToAksora}
                     aksoraConfigured={aksoraConfigured}
                     pushingAksora={pushingAksora}
+                    onSyncToSheets={handleSyncToSheets}
+                    sheetsConfigured={sheetsConfigured}
+                    syncingSheets={syncingSheets}
                     onUpdateTicket={handleUpdateTicket}
                     allSessions={sessions}
                     currentSessionId={activeSessionId}
