@@ -9,10 +9,13 @@ export async function POST(req: Request) {
     if (!session?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     const userId = session.user.email;
     const body = await req.json();
-    const { prompt, ai_provider, ai_model, api_key } = body;
+    const { prompt, ai_provider, ai_model, api_key, nine_router_public_url, nine_router_public_key } = body;
 
-    if (!prompt || !ai_provider || !ai_model || !api_key) {
+    if (!prompt || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
       return NextResponse.json({ detail: 'Missing required fields' }, { status: 400 });
+    }
+    if (ai_provider === '9router-public' && !nine_router_public_url) {
+      return NextResponse.json({ detail: '9Router Public URL is required' }, { status: 400 });
     }
 
     const systemPrompt =
@@ -21,11 +24,13 @@ export async function POST(req: Request) {
     const raw = await callLLM(
       ai_provider,
       ai_model,
-      api_key,
+      ai_provider === '9router-public' ? (nine_router_public_key || api_key || '') : api_key,
       systemPrompt,
       prompt,
       true,
-      4096
+      4096,
+      undefined,
+      nine_router_public_url || undefined
     );
 
     let data: any;

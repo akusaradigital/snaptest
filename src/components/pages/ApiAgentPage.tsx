@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import axios from "axios";
-import { getApiKey } from "@/lib/keys";
+import { getAiRequestPayload } from "@/lib/keys";
 import {
   Network, FileJson, FileText, Loader2, Copy,
   CheckCircle2, Download, Paperclip,
@@ -121,15 +121,10 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
 
     setIsLoading(true);
     try {
-      let pubCfg: Record<string, string> = {};
-      try {
-        const saved = JSON.parse(localStorage.getItem("9router_public") || "{}");
-        if (saved && typeof saved === "object" && !Array.isArray(saved)) pubCfg = saved;
-      } catch {}
       const res = await axios.post("/api/api-agent/generate", {
-        input: inputText, input_type: inputType,
-        ai_provider: aiProvider, ai_model: aiModel, api_key: getApiKey(aiProvider),
-        nine_router_public_url: pubCfg.url || "", nine_router_public_key: pubCfg.key || "",
+        input: inputText,
+        input_type: inputType,
+        ...getAiRequestPayload(aiProvider, aiModel),
       });
       setResult(res.data.result);
       setCollapsed(new Set());

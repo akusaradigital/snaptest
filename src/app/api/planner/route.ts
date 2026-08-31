@@ -18,11 +18,14 @@ export async function POST(req: Request) {
       nine_router_public_key,
     } = body;
 
-    if (!input || !ai_provider || !ai_model || !api_key) {
+    if (!input || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+    if (ai_provider === '9router-public' && !nine_router_public_url) {
+      return NextResponse.json({ error: '9Router Public URL is required' }, { status: 400 });
     }
 
     const systemPrompt = `You are a senior QA Engineer. The user will give you a document (PRD, User Story, Acceptance Criteria, Gherkin, Feature Description, or plain text). You MUST auto-detect the document format yourself — do NOT ask the user what format it is.
@@ -49,7 +52,7 @@ Return ONLY a valid JSON object with this structure:
     const raw = await callLLM(
       ai_provider,
       ai_model,
-      api_key,
+      ai_provider === '9router-public' ? (nine_router_public_key || api_key || '') : api_key,
       systemPrompt,
       input,
       true,

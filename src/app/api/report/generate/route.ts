@@ -10,13 +10,16 @@ export async function POST(req: Request) {
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json();
-    const { ai_provider, ai_model, api_key } = body;
+    const { ai_provider, ai_model, api_key, nine_router_public_url, nine_router_public_key } = body;
 
-    if (!ai_provider || !ai_model || !api_key) {
+    if (!ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
       return NextResponse.json(
         { error: 'Missing required fields: ai_provider, ai_model, api_key' },
         { status: 400 }
       );
+    }
+    if (ai_provider === '9router-public' && !nine_router_public_url) {
+      return NextResponse.json({ error: '9Router Public URL is required' }, { status: 400 });
     }
 
     await ensureSchema();
@@ -63,11 +66,13 @@ export async function POST(req: Request) {
     const raw = await callLLM(
       ai_provider,
       ai_model,
-      api_key,
+      ai_provider === '9router-public' ? (nine_router_public_key || api_key || '') : api_key,
       systemPrompt,
       dataSummary,
       true,
-      4096
+      4096,
+      undefined,
+      nine_router_public_url || undefined
     );
 
     const parsed = JSON.parse(raw);
@@ -75,7 +80,7 @@ export async function POST(req: Request) {
     if (userId) {
       await logUsage({
         user_id: userId,
-        source: 'test_generation', // ponytail: add report-specific source to logUsage union when it grows
+        source: 'executive_report',
         provider: ai_provider,
         model: ai_model,
         total_tokens: Math.ceil(dataSummary.length + raw.length / 4),

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { getApiKey } from "@/lib/keys";
+import { getAiRequestPayload } from "@/lib/keys";
 import toast from "react-hot-toast";
 import { Loader2, FileText, Download } from "lucide-react";
 
@@ -23,9 +23,9 @@ export default function ReportPage({ aiProvider, aiModel }: ReportPageProps) {
   const [report, setReport] = useState<ReportResult | null>(null);
 
   const handleGenerate = async () => {
-    const apiKey = getApiKey(aiProvider);
-    if (!apiKey) {
-      toast.error(`No API key configured for ${aiProvider}. Go to Settings first.`);
+    const aiPayload = getAiRequestPayload(aiProvider, aiModel);
+    if (aiProvider === "9router-public" ? !aiPayload.nine_router_public_url : !aiPayload.api_key) {
+      toast.error(aiProvider === "9router-public" ? "No 9Router Public URL configured. Go to Settings first." : `No API key configured for ${aiProvider}. Go to Settings first.`);
       return;
     }
 
@@ -35,7 +35,9 @@ export default function ReportPage({ aiProvider, aiModel }: ReportPageProps) {
       const res = await fetch("/api/report/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ai_provider: aiProvider, ai_model: aiModel, api_key: apiKey }),
+        body: JSON.stringify({
+          ...aiPayload,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to generate report");

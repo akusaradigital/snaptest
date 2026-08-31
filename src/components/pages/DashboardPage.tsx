@@ -25,12 +25,26 @@ export default function DashboardPage({ onNavigate }: { onNavigate: (page: PageI
   const [loadingUsage, setLoadingUsage] = useState(true);
 
   useEffect(() => {
+    try {
+      const cached = sessionStorage.getItem("snaptest_dashboard_cache");
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setMetrics(parsed.metrics || null);
+        setUsage(parsed.usage || null);
+        setLoadingUsage(false);
+      }
+    } catch { sessionStorage.removeItem("snaptest_dashboard_cache"); }
+
+    const start = performance.now();
     Promise.all([
       fetch("/api/dashboard/metrics").then((r) => r.json()).catch(() => ({ totalGenerations: 0, activeMonitors: 0, teamMembers: 1 })),
       fetch("/api/usage/summary").then((r) => r.json()).catch(() => ({ summary: null }))
     ]).then(([metricsData, usageData]) => {
+      const nextUsage = usageData.summary || null;
       setMetrics(metricsData);
-      if (usageData.summary) setUsage(usageData.summary);
+      setUsage(nextUsage);
+      sessionStorage.setItem("snaptest_dashboard_cache", JSON.stringify({ metrics: metricsData, usage: nextUsage, cachedAt: Date.now() }));
+      if (process.env.NODE_ENV === "development") console.info(`[perf] dashboard summary ${Math.round(performance.now() - start)}ms`);
     }).finally(() => setLoadingUsage(false));
   }, []);
 

@@ -56,8 +56,39 @@ function cleanExpiredAndSave(): Record<string, string> {
 }
 
 export function getApiKey(provider: string): string {
+  if (provider === "9router-public") return get9RouterPublicConfig().key;
   const map = cleanExpiredAndSave();
   return map[provider] || "";
+}
+
+export function get9RouterPublicConfig(): { url: string; key: string; models: string[]; selectedModel: string } {
+  if (typeof window === "undefined") return { url: "", key: "", models: [], selectedModel: "" };
+  try {
+    const saved = JSON.parse(localStorage.getItem("9router_public") || "{}");
+    const legacyKey = cleanExpiredAndSave()["9router-public"] || "";
+    const config = {
+      url: typeof saved.url === "string" ? saved.url : "",
+      key: typeof saved.key === "string" ? saved.key : legacyKey,
+      models: Array.isArray(saved.models) ? saved.models : [],
+      selectedModel: typeof saved.selectedModel === "string" ? saved.selectedModel : "",
+    };
+    if (!saved.key && legacyKey) localStorage.setItem("9router_public", JSON.stringify({ ...saved, key: legacyKey }));
+    return config;
+  } catch {
+    return { url: "", key: "", models: [], selectedModel: "" };
+  }
+}
+
+export function getAiRequestPayload(provider: string, model: string) {
+  const publicCfg = provider === "9router-public" ? get9RouterPublicConfig() : null;
+  const resolvedModel = provider === "9router-public" && publicCfg?.selectedModel ? publicCfg.selectedModel : model;
+  return {
+    ai_provider: provider,
+    ai_model: resolvedModel,
+    api_key: getApiKey(provider),
+    nine_router_public_url: publicCfg?.url || "",
+    nine_router_public_key: publicCfg?.key || "",
+  };
 }
 
 export function getAllKeys(): Record<string, string> {

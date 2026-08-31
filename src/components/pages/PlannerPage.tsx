@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
-import { getApiKey } from '@/lib/keys';
+import { getAiRequestPayload } from '@/lib/keys';
 import toast from 'react-hot-toast';
 
 interface PlannerPageProps {
@@ -81,12 +81,20 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
 
   const saveToLocalFallback = (updated: SessionItem[]) => {
-    try { localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(updated)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem(LOCAL_FALLBACK_KEY, JSON.stringify(updated));
+      sessionStorage.removeItem("snaptest_dashboard_cache");
+    } catch { /* ignore */ }
   };
 
   // Load sessions from server (with fallback to localStorage if offline/unauthenticated)
   useEffect(() => {
     const load = async () => {
+      try {
+        const stored = localStorage.getItem(LOCAL_FALLBACK_KEY);
+        if (stored) setSessions(JSON.parse(stored));
+      } catch { /* ignore */ }
+
       try {
         const res = await fetch(`/api/sessions?agent_type=${AGENT_TYPE}`);
         if (res.ok) {
@@ -98,6 +106,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
               updatedAt: it.updated_at,
             }));
             setSessions(items);
+            if (items[0]) fetch(`/api/sessions/${items[0].id}`).catch(() => {});
             return;
           }
         }
@@ -218,15 +227,13 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
 
     setLoading(true);
     try {
-      const apiKey = getApiKey(aiProvider);
+      const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch('/api/planner', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           input: text,
-          ai_provider: aiProvider,
-          ai_model: aiModel,
-          api_key: apiKey,
+          ...aiPayload,
         }),
       });
 

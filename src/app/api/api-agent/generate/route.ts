@@ -19,11 +19,14 @@ export async function POST(req: Request) {
       nine_router_public_key,
     } = body;
 
-    if (!input || !input_type || !ai_provider || !ai_model || !api_key) {
+    if (!input || !input_type || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
       );
+    }
+    if (ai_provider === '9router-public' && !nine_router_public_url) {
+      return NextResponse.json({ error: '9Router Public URL is required' }, { status: 400 });
     }
 
     const validTypes = ['curl', 'openapi', 'postman', 'manual'];
@@ -42,7 +45,7 @@ export async function POST(req: Request) {
     const raw = await callLLM(
       ai_provider,
       ai_model,
-      api_key,
+      ai_provider === '9router-public' ? (nine_router_public_key || api_key || '') : api_key,
       systemPrompt,
       userPrompt,
       true,

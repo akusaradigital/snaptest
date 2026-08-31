@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { getApiKey } from "@/lib/keys";
+import { getAiRequestPayload, getApiKey } from "@/lib/keys";
 import { useServerSessions } from "@/lib/useServerSessions";
 import { classifyUnifiedQaIntent, createSseParser, withTestCaseClientIds } from "@/lib/unifiedQaChat.mjs";
 import type { UnifiedQaArtifacts, UnifiedQaIntent, UnifiedQaSession } from "@/types/unifiedQaChat";
@@ -375,9 +375,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       : kind === "figma" ? inputText.trim()
       : "document://input";
 
-    const routerPublic = aiProvider === "9router-public"
-      ? readStoredObject("9router_public")
-      : {};
+    const aiPayload = getAiRequestPayload(aiProvider, aiModel);
 
     const body: Record<string, any> = {
       url: resolvedUrl,
@@ -385,17 +383,13 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       document_title: uploadedFile?.name,
       document_text: uploadedFile?.type === "pdf" ? (uploadedFile.text || "") : undefined,
       document_image_base64: uploadedFile?.type === "image" ? uploadedFile.imageBase64 : undefined,
-      ai_provider: aiProvider,
-      ai_model: aiModel,
-      api_key: getApiKey(aiProvider),
+      ...aiPayload,
       framework: "playwright",
       language: "typescript",
       fast_mode: false,
       generation_mode: "standard",
       output_mode: "cases",
       crawl_mode: uploadedFile?.type === "image" ? "vision" : (uploadedFile?.type === "pdf" || kind === "goal") ? "document" : "static",
-      nine_router_public_url: routerPublic.url || "",
-      nine_router_public_key: routerPublic.key || "",
     };
 
     const abort = new AbortController();
@@ -533,9 +527,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     });
 
     try {
-      const routerPublic = aiProvider === "9router-public"
-        ? JSON.parse(localStorage.getItem("9router_public") || "{}")
-        : {};
+      const aiPayload = getAiRequestPayload(aiProvider, aiModel);
 
       if (type === "playwright") {
         const res = await fetch("/api/generate/script", {
@@ -545,11 +537,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
             test_cases: activeResult.test_cases,
             framework: "playwright",
             language: "typescript",
-            ai_provider: aiProvider,
-            ai_model: aiModel,
-            api_key: getApiKey(aiProvider),
-            nine_router_public_url: routerPublic.url || "",
-            nine_router_public_key: routerPublic.key || "",
+            ...aiPayload,
           }),
         });
         const data = await res.json();
@@ -650,17 +638,36 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     const failed = a?.cases.find(tc => a.runStates[tc.clientId]?.status === "failed");
     const script = failed && (a?.playwright as ScriptFile[] || []).find(s => s.file_name === failed.file_name);
     if (!failed || !script) { toast.error("Run a scripted case and select a failed result first."); return; }
-    const router = aiProvider === "9router-public" ? readStoredObject("9router_public") : {};
-    const response = await fetch("/api/unified-chat/repair", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ script: script.content, error: a!.runStates[failed.clientId].actual, context: failed.name, ai_provider: aiProvider, ai_model: aiModel, api_key: getApiKey(aiProvider), nine_router_public_url: router.url, nine_router_public_key: router.key }) });
-    const data = await response.json(); if (!response.ok) { toast.error(data.error || "Analysis failed"); return; }
+    const aiPayload = getAiRequestPayload(aiProvider, aiModel);
+    const response = await fetch("/api/unified-chat/repair", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        script: script.content,
+        error: a!.runStates[failed.clientId].actual,
+        context: failed.name,
+        ...aiPayload,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok) { toast.error(data.error || "Analysis failed"); return; }
     updateArtifacts({ repair: { caseId: failed.clientId, ...data } });
   };
 
   const draftJira = async () => {
     const a = activeSession?.artifacts; const failed = a?.cases.find(tc => a.runStates[tc.clientId]?.status === "failed");
     if (!failed) { toast.error("A failed test is required for a Jira draft."); return; }
-    const response = await fetch("/api/ticket/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: `Failed test: ${failed.name}. Expected: ${failed.expected_result}. Actual: ${a!.runStates[failed.clientId].actual}`, ai_provider: aiProvider, ai_model: aiModel, api_key: getApiKey(aiProvider) }) });
-    const data = await response.json(); if (!response.ok || !data.has_ticket_data) { toast.error(data.detail || "Could not create a complete Jira draft"); return; }
+    const aiPayload = getAiRequestPayload(aiProvider, aiModel);
+    const response = await fetch("/api/ticket/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt: `Failed test: ${failed.name}. Expected: ${failed.expected_result}. Actual: ${a!.runStates[failed.clientId].actual}`,
+        ...aiPayload,
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.has_ticket_data) { toast.error(data.detail || "Could not create a complete Jira draft"); return; }
     updateArtifacts({ jiraDraft: data });
   };
 

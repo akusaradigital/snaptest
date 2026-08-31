@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useState, useCallback, useEffect, ReactNode } from "react";
 import { ModelsResponse } from "@/types";
-import { getApiKey } from "@/lib/keys";
+import { get9RouterPublicConfig, getApiKey } from "@/lib/keys";
 import axios from "axios";
 
 interface DashboardCtx {
@@ -22,22 +22,43 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   const [prefillUrl, setPrefillUrl] = useState("");
   const [prefillContext, setPrefillContext] = useState("");
 
+  const applySavedSelection = (data: ModelsResponse) => {
+    const saved = localStorage.getItem("snaptest_selected_provider_model");
+    if (!saved) return false;
+    try {
+      const { provider, model } = JSON.parse(saved);
+      const publicCfg = provider === "9router-public" ? get9RouterPublicConfig() : null;
+      const providerModels = provider === "9router-public" ? publicCfg?.models : data.providers[provider];
+      const validSelection = typeof provider === "string" && typeof model === "string" && providerModels?.includes(model);
+      const isConnected = provider === "9router-public"
+        ? !!publicCfg?.url && !!providerModels?.length
+        : provider === "9router" ? data.status[provider] === "connected" : !!getApiKey(provider);
+      if (!validSelection || !isConnected) return false;
+      setAiProvider(provider);
+      setAiModel(model);
+      return true;
+    } catch {
+      localStorage.removeItem("snaptest_selected_provider_model");
+      return false;
+    }
+  };
+
   const refreshModels = useCallback(async () => {
     try {
-      const res = await axios.get<ModelsResponse>("/api/models");
-      setModelsData(res.data);
-      const saved = localStorage.getItem("snaptest_selected_provider_model");
-      if (saved) {
+      const cached = sessionStorage.getItem("snaptest_models_cache");
+      if (cached) {
         try {
-          const { provider, model } = JSON.parse(saved);
-          const validSelection = typeof provider === "string" && typeof model === "string" && res.data.providers[provider]?.includes(model);
-          const isConnected = provider === "9router-public" || (provider === "9router" ? res.data.status[provider] === "connected" : !!getApiKey(provider));
-          if (validSelection && isConnected) { setAiProvider(provider); setAiModel(model); return; }
-        } catch {
-          localStorage.removeItem("snaptest_selected_provider_model");
-        }
+          const cachedData = JSON.parse(cached);
+          setModelsData(cachedData);
+          applySavedSelection(cachedData);
+        } catch { sessionStorage.removeItem("snaptest_models_cache"); }
       }
-      setAiProvider(""); setAiModel("");
+      const start = performance.now();
+      const res = await axios.get<ModelsResponse>("/api/models");
+      if (process.env.NODE_ENV === "development") console.info(`[perf] /api/models ${Math.round(performance.now() - start)}ms`);
+      setModelsData(res.data);
+      sessionStorage.setItem("snaptest_models_cache", JSON.stringify(res.data));
+      if (!applySavedSelection(res.data)) { setAiProvider(""); setAiModel(""); }
     } catch {}
   }, []);
 

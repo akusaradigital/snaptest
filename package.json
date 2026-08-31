@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/html-parser-check.mjs && node tests/unified-qa-chat-check.mjs && node tests/ticket-json-check.mjs && node tests/auth-policy-check.mjs && tsx tests/outbound-url-check.ts"
+    "test": "node tests/html-parser-check.mjs && node tests/unified-qa-chat-check.mjs && node tests/ticket-json-check.mjs && node tests/auth-policy-check.mjs && tsx tests/outbound-url-check.ts && tsx tests/keys-check.ts && tsx tests/ticket-agent-payload-check.ts"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.1.0",

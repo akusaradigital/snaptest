@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Database, Copy, Download, Loader2 } from 'lucide-react';
-import { getApiKey } from '@/lib/keys';
+import { getAiRequestPayload } from '@/lib/keys';
 import toast from 'react-hot-toast';
 
 interface DataGenPageProps {
@@ -31,15 +31,13 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
 
     setLoading(true);
     try {
-      const apiKey = getApiKey(aiProvider);
+      const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch('/api/data/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,
-          ai_provider: aiProvider,
-          ai_model: aiModel,
-          api_key: apiKey
+          ...aiPayload
         }),
       });
 

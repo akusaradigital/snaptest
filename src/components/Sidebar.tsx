@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Zap,
   Settings,
@@ -51,6 +51,16 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
   const handlePrefetch = (page: PageId) => {
     if (page !== activePage) router.prefetch(`/${page}`);
   };
+
+  useEffect(() => {
+    const prefetchAll = () => NAV_ITEMS.forEach((item) => handlePrefetch(item.id));
+    if ("requestIdleCallback" in window) {
+      const idle = window.requestIdleCallback(prefetchAll, { timeout: 1500 });
+      return () => window.cancelIdleCallback(idle);
+    }
+    const timer = setTimeout(prefetchAll, 500);
+    return () => clearTimeout(timer);
+  }, [activePage]);
 
   return (
     <>

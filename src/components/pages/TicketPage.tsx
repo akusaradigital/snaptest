@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { getApiKey } from "@/lib/keys";
+import { get9RouterPublicConfig, getAiRequestPayload, getApiKey } from "@/lib/keys";
 import toast from "react-hot-toast";
 import TicketChatBubble from "@/components/TicketChatBubble";
 import {
@@ -107,6 +107,19 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   useEffect(() => {
     const fetchServerSessions = async () => {
       try {
+        const saved = localStorage.getItem(TICKET_SESSIONS_STORAGE);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setSessions(parsed);
+            const hashSessionId = window.location.hash.replace("#", "");
+            const targetId = hashSessionId && parsed.find((s: any) => s.id === hashSessionId) ? hashSessionId : parsed[0].id;
+            setActiveSessionId(targetId);
+          }
+        }
+      } catch {}
+
+      try {
         const res = await fetch("/api/tickets");
         if (res.ok) {
           const data = await res.json();
@@ -201,6 +214,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     setSessions(updated);
     try {
       localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(updated));
+      sessionStorage.removeItem("snaptest_dashboard_cache");
     } catch {}
 
     // Async sync to server API
@@ -244,6 +258,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     setSessions(updated);
     try {
       localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(updated));
+      sessionStorage.removeItem("snaptest_dashboard_cache");
     } catch {}
 
     if (activeSessionId === id) {
@@ -536,14 +551,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         image_base64: m.image_base64,
       }));
 
+      const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch("/api/ticket/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: formattedHistory,
-          provider: aiProvider,
-          model: aiModel,
-          api_key: apiKey,
+          ...aiPayload,
         }),
       });
 
@@ -586,7 +600,12 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     if (e) e.preventDefault();
     if (!inputText.trim() && !imageBase64) return;
 
+    const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
     let apiKey = getApiKey(aiProvider);
+    if (aiProvider === "9router-public" && !publicCfg?.url) {
+      toast.error("Please connect 9Router Public URL in Settings first");
+      return;
+    }
     if (!apiKey && aiProvider !== "9router") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
@@ -657,7 +676,12 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     }
 
     const truncatedMessages = msgs.slice(0, lastUserIdx + 1);
+    const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
     let apiKey = getApiKey(aiProvider);
+    if (aiProvider === "9router-public" && !publicCfg?.url) {
+      toast.error("Please connect 9Router Public URL in Settings first");
+      return;
+    }
     if (!apiKey && aiProvider !== "9router") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;

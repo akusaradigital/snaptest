@@ -134,6 +134,47 @@ export default function SettingsPage({
     }
   }, []);
 
+  const handleExportBackup = () => {
+    const backup = {
+      version: 1,
+      snaptest_api_keys: localStorage.getItem("snaptest_api_keys"),
+      nine_router_public: localStorage.getItem("9router_public"),
+      snaptest_selected_provider_model: localStorage.getItem("snaptest_selected_provider_model"),
+      snaptest_settings: localStorage.getItem("snaptest_settings"),
+      jira_config: localStorage.getItem("jira_config"),
+      aksora_config: localStorage.getItem("aksora_config"),
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `snaptest-settings-${new Date().toISOString().slice(0, 10)}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success("Settings exported");
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const data = JSON.parse(String(reader.result || "{}"));
+        for (const key of ["snaptest_api_keys", "nine_router_public", "snaptest_selected_provider_model", "snaptest_settings", "jira_config", "aksora_config"]) {
+          const storageKey = key === "nine_router_public" ? "9router_public" : key;
+          if (typeof data[key] === "string") localStorage.setItem(storageKey, data[key]);
+        }
+        toast.success("Settings imported. Reloading...");
+        setTimeout(() => window.location.reload(), 500);
+      } catch {
+        toast.error("Failed to parse backup file");
+      }
+    };
+    reader.readAsText(file);
+  };
+
   const handleProjectKeyChange = (val: string) => {
     const upper = val.toUpperCase();
     setJiraProjectKey(upper);
@@ -334,14 +375,25 @@ export default function SettingsPage({
           </div>
 
           {activeSection === "ai" && (
-            <AISettings
-              onProviderChange={onProviderChange}
-              selectedProvider={selectedProvider}
-              selectedModel={selectedModel}
-              modelsData={modelsData}
-              refreshModels={refreshModels}
-              inline
-            />
+            <div className="space-y-4">
+              <AISettings
+                onProviderChange={onProviderChange}
+                selectedProvider={selectedProvider}
+                selectedModel={selectedModel}
+                modelsData={modelsData}
+                refreshModels={refreshModels}
+                inline
+              />
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-4">
+                <label className="btn-secondary cursor-pointer text-xs">
+                  Import Settings
+                  <input type="file" accept="application/json" className="hidden" onChange={handleImportBackup} />
+                </label>
+                <button type="button" onClick={handleExportBackup} className="btn-secondary text-xs">
+                  Export Settings
+                </button>
+              </div>
+            </div>
           )}
 
           {activeSection === "generation" && (

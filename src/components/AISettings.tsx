@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import { ModelsResponse } from "@/types";
-import { getApiKey, getAllKeys, setApiKey, removeApiKey } from "@/lib/keys";
+import { getApiKey, getAllKeys, get9RouterPublicConfig, setApiKey, removeApiKey } from "@/lib/keys";
 import toast from "react-hot-toast";
 import { Settings, X, RefreshCw, ChevronDown, ExternalLink, Key, Check } from "lucide-react";
 
@@ -85,6 +85,22 @@ const PROVIDER_INFO: Record<string, { label: string; color: string; placeholder:
   },
 };
 
+const EMPTY_9ROUTER_PUBLIC = { url: "", key: "", models: [], selectedModel: "" };
+
+const maskText = (text: string, isUrl = false) => {
+  if (!text) return isUrl ? "No URL" : "No key required";
+  if (isUrl) {
+    try {
+      const url = new URL(text);
+      const host = url.hostname;
+      return `${url.protocol}//${host[0]}...${host[host.length - 1]}${url.pathname}`;
+    } catch {
+      return text.length > 10 ? `${text.slice(0, 5)}...${text.slice(-5)}` : text;
+    }
+  }
+  return text.length > 8 ? `${text.slice(0, 6)}...${text.slice(-4)}` : "••••••••";
+};
+
 export default function AISettings({
   onProviderChange,
   selectedProvider,
@@ -116,9 +132,11 @@ export default function AISettings({
 
   useEffect(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('9router_public') || '{}');
-      if (Array.isArray(saved.models) && saved.models.length > 0) {
+      const saved = get9RouterPublicConfig();
+      if (saved.models.length > 0) {
         setLocalProviderModels((prev) => ({ ...prev, '9router-public': saved.models }));
+      }
+      if (saved.url && saved.models.length > 0) {
         setProviders((prev) => ({
           ...prev,
           '9router-public': { ...prev['9router-public'], status: 'connected', showInput: false },
@@ -153,18 +171,14 @@ export default function AISettings({
     });
   }, []);
 
-  const getSaved9RouterPublic = () => {
-    try {
-      return JSON.parse(localStorage.getItem('9router_public') || '{}') as {
-        url?: string;
-        key?: string;
-        models?: string[];
-        selectedModel?: string;
-      };
-    } catch {
-      return {};
+  const getSaved9RouterPublic = get9RouterPublicConfig;
+
+  useEffect(() => {
+    const saved = getSaved9RouterPublic();
+    if (selectedProvider === '9router-public' && saved.models.length > 0 && !saved.models.includes(selectedModel)) {
+      onProviderChange('9router-public', saved.selectedModel && saved.models.includes(saved.selectedModel) ? saved.selectedModel : saved.models[0]);
     }
-  };
+  }, [selectedProvider, selectedModel, onProviderChange]);
 
   // Sync with modelsData whenever it changes
   useEffect(() => {
@@ -184,10 +198,11 @@ export default function AISettings({
               };
             } else {
               const hasLocalModels = (localProviderModels[provider] || []).length > 0;
+              const publicReady = provider === '9router-public' ? !!getSaved9RouterPublic().url && hasLocalModels : hasLocalModels;
               updated[provider] = {
                 ...updated[provider],
-                status: hasLocalModels ? "connected" : status,
-                showInput: hasLocalModels ? false : updated[provider].showInput,
+                status: publicReady ? "connected" : status,
+                showInput: publicReady ? false : updated[provider].showInput,
               };
             }
           }
@@ -245,6 +260,7 @@ export default function AISettings({
       const nextModel = validatedModels[0] || '';
       if (provider === '9router-public') {
         localStorage.setItem('9router_public', JSON.stringify({
+          version: 1,
           url: state.urlInput || '',
           key: state.keyInput || '',
           models: validatedModels,
@@ -300,7 +316,7 @@ export default function AISettings({
     setPingingModel(modelToTest);
     const pingToast = toast.loading(`Testing model "${modelToTest}"...`);
     try {
-      const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : {};
+      const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : EMPTY_9ROUTER_PUBLIC;
       const apiKey = provider === '9router-public'
         ? `${saved9Router.url || ''} ${saved9Router.key || ''}`.trim()
         : getApiKey(provider);
@@ -391,7 +407,7 @@ export default function AISettings({
     const targetModel = (selectedProvider === provider && models.includes(selectedModel))
       ? selectedModel
       : (models[0] || '');
-    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : {};
+    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : EMPTY_9ROUTER_PUBLIC;
     const apiKey = provider === '9router-public'
       ? `${saved9Router.url || ''} ${saved9Router.key || ''}`.trim()
       : getApiKey(provider);
@@ -432,6 +448,7 @@ export default function AISettings({
           setLocalProviderModels((prev) => ({ ...prev, [provider]: validatedModels }));
           localStorage.setItem('9router_public', JSON.stringify({
             ...saved9Router,
+            version: 1,
             models: validatedModels,
             selectedModel: nextModel,
           }));
@@ -479,6 +496,11 @@ export default function AISettings({
     }
   };
 
+  useEffect(() => {
+    const saved = getSaved9RouterPublic();
+    if (saved.url && saved.models.length > 0) handlePingProvider('9router-public').catch(() => {});
+  }, []);
+
   const handleRevoke = async (provider: string) => {
     try {
       if (provider === '9router-public') {
@@ -519,7 +541,7 @@ export default function AISettings({
   };
 
   const handleUpdate = (provider: string) => {
-    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : {};
+    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : EMPTY_9ROUTER_PUBLIC;
     setProviders((prev) => ({
       ...prev,
       [provider]: {
@@ -532,7 +554,7 @@ export default function AISettings({
   };
 
   const handleAddKey = (provider: string) => {
-    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : {};
+    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : EMPTY_9ROUTER_PUBLIC;
     setProviders((prev) => ({
       ...prev,
       [provider]: {
@@ -550,7 +572,7 @@ export default function AISettings({
       return;
     }
     const models = localProviderModels[provider] || modelsData?.providers[provider] || [];
-    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : {};
+    const saved9Router = provider === '9router-public' ? getSaved9RouterPublic() : EMPTY_9ROUTER_PUBLIC;
     const firstModel = provider === '9router-public' && models.includes(saved9Router.selectedModel || '')
       ? saved9Router.selectedModel || ''
       : models[0] || "";
@@ -564,6 +586,7 @@ export default function AISettings({
       const saved9Router = getSaved9RouterPublic();
       localStorage.setItem('9router_public', JSON.stringify({
         ...saved9Router,
+        version: 1,
         selectedModel: model,
       }));
     }
@@ -608,6 +631,13 @@ export default function AISettings({
                   {isActive && (
                     <span className="text-[10px] font-medium text-indigo-600 bg-indigo-100 px-1.5 py-0.5 rounded">
                       ACTIVE
+                    </span>
+                  )}
+                  {state.status === "connected" && (
+                    <span className="hidden sm:inline text-[10px] text-slate-400 font-mono truncate max-w-40" title={provider === '9router-public' ? getSaved9RouterPublic().url : undefined}>
+                      {provider === '9router-public'
+                        ? `${maskText(getSaved9RouterPublic().url, true)} / ${maskText(getSaved9RouterPublic().key)}`
+                        : maskText(getApiKey(provider))}
                     </span>
                   )}
                 </div>
@@ -670,7 +700,7 @@ export default function AISettings({
                         onClick={() => handlePingProvider(provider)}
                         disabled={state.validating}
                         className="p-1 rounded hover:bg-slate-100 transition"
-                        title="Check connection"
+                        title={provider === '9router-public' ? "Refresh user models" : "Check connection"}
                       >
                         <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${state.validating ? "animate-spin" : ""}`} />
                       </button>
@@ -699,7 +729,7 @@ export default function AISettings({
                           onClick={() => handlePingProvider(provider)}
                           disabled={state.validating}
                           className="p-1 rounded hover:bg-slate-100 transition"
-                          title="Check connection"
+                          title={provider === '9router-public' ? "Refresh user models" : "Check connection"}
                         >
                           <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${state.validating ? "animate-spin" : ""}`} />
                         </button>
@@ -803,7 +833,7 @@ export default function AISettings({
                 <div className="mt-3 pt-3 border-t border-indigo-100">
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-medium text-slate-600 block">
-                      Model
+                      Model{provider === '9router-public' ? ' (from your 9Router)' : ''}
                     </label>
                     {selectedModel && (
                       <button
@@ -855,7 +885,7 @@ export default function AISettings({
         <Settings className="w-4 h-4 text-slate-500" />
         <span className="hidden sm:inline text-slate-700">
           {selectedProvider && PROVIDER_INFO[selectedProvider]
-            ? `${PROVIDER_INFO[selectedProvider].label} / ${selectedModel}`
+            ? `${PROVIDER_INFO[selectedProvider].label} / ${selectedModel || "No model selected"}`
             : "Select AI Provider"
           }
         </span>
@@ -890,6 +920,12 @@ export default function AISettings({
               <X className="w-4 h-4 text-slate-400" />
             </button>
           </div>
+
+          {selectedProvider && !selectedModel && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+              Please select a model for {PROVIDER_INFO[selectedProvider]?.label || selectedProvider}.
+            </div>
+          )}
 
           <div className="space-y-2">
             {Object.entries(PROVIDER_INFO).filter(([p]) => (p === '9router' ? isLocal : p === '9router-public' ? !isLocal : true)).map(([provider, info]) => {
@@ -935,7 +971,7 @@ export default function AISettings({
                             onClick={provider === '9router' ? handleCheck9Router : () => handlePingProvider(provider)}
                             disabled={state.validating}
                             className="p-1 rounded hover:bg-slate-100 transition"
-                            title="Check connection"
+                            title={provider === '9router-public' ? "Refresh user models" : "Check connection"}
                           >
                             <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${state.validating ? "animate-spin" : ""}`} />
                           </button>
@@ -964,7 +1000,7 @@ export default function AISettings({
                               onClick={provider === '9router' ? handleCheck9Router : () => handlePingProvider(provider)}
                               disabled={state.validating}
                               className="p-1 rounded hover:bg-slate-100 transition"
-                              title="Check connection"
+                              title={provider === '9router-public' ? "Refresh user models" : "Check connection"}
                             >
                               <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${state.validating ? "animate-spin" : ""}`} />
                             </button>
@@ -1059,7 +1095,7 @@ export default function AISettings({
                   {isActive && (localProviderModels[provider] || modelsData?.providers[provider]) && (
                     <div className="mt-3 pt-3 border-t border-indigo-100">
                       <label className="text-xs font-medium text-slate-600 block mb-1.5">
-                        Model
+                        Model{provider === '9router-public' ? ' (from your 9Router)' : ''}
                       </label>
                       <select
                         value={selectedModel}

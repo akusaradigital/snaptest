@@ -156,7 +156,7 @@ export function getDB() {
 
 export async function logUsage(params: {
   user_id: string;
-  source: 'test_generation' | 'ticket_agent' | 'data_generation' | 'api_agent' | 'script_repair' | 'coverage_check';
+  source: 'test_generation' | 'ticket_agent' | 'data_generation' | 'api_agent' | 'script_repair' | 'coverage_check' | 'executive_report';
   provider?: string;
   model?: string;
   total_tokens?: number;
