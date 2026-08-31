@@ -78,6 +78,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [pushingAksora, setPushingAksora] = useState(false);
   const [aksoraConfigured, setAksoraConfigured] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
@@ -753,8 +754,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           </button>
         </div>
 
-        {/* Search */}
-        <div className="p-2 border-b border-slate-200/60 dark:border-slate-800/60">
+        {/* Search & Type Filter */}
+        <div className="p-2 border-b border-slate-200/60 dark:border-slate-800/60 space-y-1.5">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
             <input
@@ -765,6 +766,27 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
               className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
           </div>
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[10px] font-semibold">
+            {[
+              { id: "all", label: "All" },
+              { id: "bug", label: "Bug" },
+              { id: "improvement", label: "Improvement" },
+              { id: "feature", label: "Feature" }
+            ].map(f => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setTypeFilter(f.id)}
+                className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
+                  typeFilter === f.id
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* List */}
@@ -773,10 +795,20 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             <p className="text-xs text-slate-400 text-center py-6">No previous chats</p>
           ) : (
             (() => {
-              const filtered = sessions.filter(s =>
-                s.title.toLowerCase().includes(sessionSearch.toLowerCase()) ||
-                s.messages.some(m => m.content.toLowerCase().includes(sessionSearch.toLowerCase()))
-              );
+              const filtered = sessions.filter(s => {
+                const matchSearch = !sessionSearch ||
+                  s.title.toLowerCase().includes(sessionSearch.toLowerCase()) ||
+                  s.messages.some(m => m.content.toLowerCase().includes(sessionSearch.toLowerCase()));
+                if (!matchSearch) return false;
+                if (typeFilter === "all") return true;
+                return s.messages.some(m => {
+                  const issueType = (m.ticket_result?.issue_type || "").toLowerCase();
+                  if (typeFilter === "bug") return issueType === "bug";
+                  if (typeFilter === "improvement") return issueType === "improvement";
+                  if (typeFilter === "feature") return issueType.includes("feature");
+                  return true;
+                });
+              });
               if (filtered.length === 0) {
                 return <p className="text-xs text-slate-400 text-center py-6">No matching chats</p>;
               }
@@ -807,8 +839,24 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                         </form>
                       ) : (
                         <>
-                          <p className="truncate">{s.title}</p>
-                          <span className="text-[10px] text-slate-400 font-normal block">{s.updatedAt}</span>
+                          <div className="flex items-center gap-1.5 mb-0.5">
+                            <p className="truncate font-medium">{s.title}</p>
+                          </div>
+                          <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400">
+                            <span>{s.updatedAt}</span>
+                            {(() => {
+                              const lastTicket = [...s.messages].reverse().find(m => m.ticket_result?.issue_type);
+                              const type = lastTicket?.ticket_result?.issue_type;
+                              if (!type) return null;
+                              return (
+                                <span className={`px-1.5 py-0.2 rounded text-[9px] font-bold ${
+                                  type === "Bug" ? "bg-rose-100 dark:bg-rose-950 text-rose-600" : type === "Improvement" ? "bg-amber-100 dark:bg-amber-950 text-amber-600" : "bg-emerald-100 dark:bg-emerald-950 text-emerald-600"
+                                }`}>
+                                  {type}
+                                </span>
+                              );
+                            })()}
+                          </div>
                         </>
                       )}
                     </div>

@@ -147,6 +147,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
   "chat_title": "Short 3-5 word session title summarizing the topic (or 'New Ticket Chat' if just greeting)",
   "assistant_reply": "Your conversational response to the user, in the language determined by the LANGUAGE rule above",
   "issue_type": "Bug" | "Improvement" | "New Feature",
+  "priority": "P0" | "P1" | "P2" | "P3",
   "title": "Clean title without ** stars",
   "description": "Clean description text without ** stars",
   "current_behavior": "Current behavior text if Improvement",
@@ -155,6 +156,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
   "acceptance_criteria": ["Criteria 1", "Criteria 2"],
   "evidence": "Exact URL from input or placeholder"
 }`;
+
 
     // ponytail: cap history sent to the LLM — the whole conversation is resent (uncached) every
     // turn, so a long chat makes every reply slower and pricier. Last 10 turns is plenty of context.
@@ -267,6 +269,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
         : 'Hello! Please describe the issue, improvement, or new feature you would like to document.'),
       fields: selectedFields,
       issue_type: type,
+      priority: parsed.priority || (type === 'Bug' ? 'P1' : 'P2'),
       title: hasTicketData ? cleanTitle : null,
       description: hasTicketData ? cleanDesc : null,
       current_behavior: hasTicketData ? (parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null)) : null,

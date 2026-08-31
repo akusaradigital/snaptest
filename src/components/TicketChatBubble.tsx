@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
@@ -124,6 +124,44 @@ export default function TicketChatBubble({
     toast.success(`Switched to ${newType}`);
   };
 
+  const togglePriority = (newPriority: string) => {
+    if (readOnly || !onUpdateTicket) return;
+    onUpdateTicket(msg.id, { priority: newPriority });
+    toast.success(`Priority updated to ${newPriority}`);
+  };
+
+  const handlePrintPdf = () => {
+    const md = msg.ticket_result?.markdown || generateMarkdown();
+    const title = msg.ticket_result?.title || "QA Issue Ticket";
+    const printWindow = window.open("", "_blank");
+    if (!printWindow) {
+      toast.error("Popup blocked. Please allow popups to print PDF.");
+      return;
+    }
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>${title}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; line-height: 1.6; color: #1e293b; max-width: 800px; margin: 0 auto; }
+            h1 { font-size: 20px; border-bottom: 2px solid #6366f1; padding-bottom: 8px; color: #0f172a; }
+            pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; font-size: 13px; }
+            .badge { display: inline-block; padding: 4px 8px; background: #e0e7ff; color: #4338ca; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 16px; }
+          </style>
+        </head>
+        <body>
+          <div class="badge">SnapTest QA Export</div>
+          <h1>${title}</h1>
+          <pre>${md}</pre>
+          <script>
+            window.onload = function() { window.print(); }
+          </script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+  };
+
   const isUser = msg.role === "user";
   const ticket = msg.ticket_result;
   const hasTicket = Boolean(
@@ -168,39 +206,68 @@ export default function TicketChatBubble({
         <div className="space-y-3.5 leading-relaxed">
           {/* Header Status & Issue Type Switcher */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-700/60">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Issue Type:</span>
-              {!readOnly ? (
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs font-semibold">
-                  {["Bug", "Improvement", "New Feature"].map((type) => {
-                    const active = (ticket.issue_type || "Bug") === type;
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => toggleIssueType(type)}
-                        className={`px-2 py-0.5 rounded-md transition ${
-                          active
-                            ? type === "Bug"
-                              ? "bg-rose-500 text-white shadow-xs"
-                              : type === "Improvement"
-                              ? "bg-amber-500 text-white shadow-xs"
-                              : "bg-emerald-500 text-white shadow-xs"
-                            : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                        }`}
-                      >
-                        {type}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${
-                  ticket.issue_type === "Bug" ? "bg-rose-100 text-rose-700" : ticket.issue_type === "Improvement" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                }`}>
-                  {ticket.issue_type || "Bug"}
-                </span>
-              )}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Type:</span>
+                {!readOnly ? (
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs font-semibold">
+                    {["Bug", "Improvement", "New Feature"].map((type) => {
+                      const active = (ticket.issue_type || "Bug") === type;
+                      return (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => toggleIssueType(type)}
+                          className={`px-2 py-0.5 rounded-md transition ${
+                            active
+                              ? type === "Bug"
+                                ? "bg-rose-500 text-white shadow-xs"
+                                : type === "Improvement"
+                                ? "bg-amber-500 text-white shadow-xs"
+                                : "bg-emerald-500 text-white shadow-xs"
+                              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                          }`}
+                        >
+                          {type}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${
+                    ticket.issue_type === "Bug" ? "bg-rose-100 text-rose-700" : ticket.issue_type === "Improvement" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
+                  }`}>
+                    {ticket.issue_type || "Bug"}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Priority:</span>
+                {!readOnly ? (
+                  <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-[11px] font-bold">
+                    {["P0", "P1", "P2", "P3"].map((p) => {
+                      const active = (ticket.priority || "P1") === p;
+                      const activeColor = p === "P0" ? "bg-red-600 text-white" : p === "P1" ? "bg-orange-500 text-white" : p === "P2" ? "bg-amber-500 text-white" : "bg-slate-500 text-white";
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => togglePriority(p)}
+                          className={`px-1.5 py-0.5 rounded transition ${active ? activeColor : "text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}
+                          title={`Set priority to ${p}`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                    {ticket.priority || "P1"}
+                  </span>
+                )}
+              </div>
             </div>
 
             {/* Timeline Tracking Status */}
@@ -499,6 +566,14 @@ export default function TicketChatBubble({
             </div>
 
             <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handlePrintPdf}
+                className="p-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                title="Print ticket / Save as PDF"
+              >
+                <Printer className="w-3.5 h-3.5" />
+              </button>
               <button
                 type="button"
                 onClick={handleDownloadMd}
