@@ -94,15 +94,15 @@ export async function POST(request: Request) {
 Your role is to converse naturally with the QA/Dev engineer to gather information, auto-detect the issue type, ask targeted clarification questions when info is incomplete, and assemble a flawless, professional Jira ticket.
 
 RULES FOR "has_ticket_data":
-1. Set "has_ticket_data": false if:
-   - The user message is just a greeting (e.g. "hi", "hello", "halo", "test", "thanks", "p").
-   - The user provided very vague input without sufficient context (e.g. "button error", "fitur login rusak").
-   - Critical details for the classified type are missing (for Bug: what is the actual vs expected failure? for Improvement: what is the current behavior? for Feature: what is the main goal?).
-2. Set "has_ticket_data": true ONLY when there is enough concrete context provided across the conversation history to fill out a full, real ticket without making up fake placehoder data.
+1. Set "has_ticket_data": false ONLY if:
+   - The user message is just a bare greeting (e.g. "hi", "hello", "halo", "test", "thanks", "p").
+   - The user provided extremely vague input (e.g. just "error", "rusak", "tolong").
+2. Set "has_ticket_data": true whenever the user describes a problem, expected behavior, improvement, or provides a URL/evidence. You MUST extract and fill ALL relevant fields (title, description, issue_type, expected_result, actual_result or current_behavior, acceptance_criteria, evidence). NEVER leave them null when has_ticket_data is true.
 
 PROACTIVE QUESTIONING & AGENT PERSONALITY:
-- If "has_ticket_data" is false: Provide a warm, concise "assistant_reply" (1-2 sentences) acknowledging what you know so far and asking 1 or 2 targeted, specific questions to get the missing details.
-- If "has_ticket_data" is true: Provide a clear "assistant_reply" confirming the ticket has been generated/updated and summarizing the key points.
+- If "has_ticket_data" is false: Provide a warm, concise "assistant_reply" (1-2 sentences) asking for details.
+- If "has_ticket_data" is true: Provide a 1-sentence confirmation in "assistant_reply", and populate the complete structured ticket fields.
+
 - Tone: Professional, helpful, QA-focused.
 
 TEMPLATE FORMAT RULES (when ticket data is ready):
@@ -188,16 +188,27 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
     const type = parsed.issue_type || 'Bug';
 
     // Strict server-side verification: title and description must be real, non-placeholder text
-    const cleanTitle = (parsed.title || '').replace(/\*\*/g, '').trim();
-    const cleanDesc = (parsed.description || '').replace(/\*\*/g, '').trim();
+    let cleanTitle = (parsed.title || '').replace(/\*\*/g, '').trim();
+    let cleanDesc = (parsed.description || '').replace(/\*\*/g, '').trim();
 
     const isPlaceholder = (str: string) => str.includes('[Module') || str.includes('[Feature Name]') || str.includes('TBD') || str.includes('to be determined');
 
+    // Fallback if LLM placed all content in assistant_reply or omitted title/desc
+    const urlInPrompt = formattedConversation.match(/https?:\/\/\S+/)?.[0];
+    const userContent = lastMsg?.content || '';
+    if (!cleanTitle && (urlInPrompt || userContent.length > 20)) {
+      const firstLine = userContent.split('\n').filter((l: string) => !l.startsWith('http'))[0] || userContent;
+      cleanTitle = firstLine.substring(0, 60).trim();
+    }
+    if (!cleanDesc && userContent.length > 10) {
+      cleanDesc = userContent.trim();
+    }
+
     const hasTicketData = Boolean(
-      parsed.has_ticket_data === true &&
-      cleanTitle.length > 5 &&
+      (parsed.has_ticket_data === true || !!urlInPrompt || userContent.length > 30) &&
+      cleanTitle.length > 3 &&
       !isPlaceholder(cleanTitle) &&
-      cleanDesc.length > 15 &&
+      cleanDesc.length > 5 &&
       !isPlaceholder(cleanDesc)
     );
 
@@ -208,12 +219,15 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       if (selectedFields.includes('title') && cleanTitle) markdownLines.push(`**Title:** ${cleanTitle}`);
       if (selectedFields.includes('description') && cleanDesc) markdownLines.push(`\n**Description:**\n${cleanDesc}`);
 
-      if (selectedFields.includes('current_behavior') && parsed.current_behavior && type === 'Improvement') {
-        markdownLines.push(`\n**Current Behavior:**\n${String(parsed.current_behavior).replace(/\*\*/g, '')}`);
+      const currentBehavior = parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null);
+      const expectedResult = parsed.expected_result || (type === 'Improvement' || type === 'Bug' ? userContent : null);
+
+      if (selectedFields.includes('current_behavior') && currentBehavior && type === 'Improvement') {
+        markdownLines.push(`\n**Current Behavior:**\n${String(currentBehavior).replace(/\*\*/g, '')}`);
       }
-      if (selectedFields.includes('expected_result') && parsed.expected_result) {
+      if (selectedFields.includes('expected_result') && expectedResult) {
         const label = type === 'Improvement' ? 'Expected / Proposed Result' : 'Expected Result';
-        markdownLines.push(`\n**${label}:**\n${String(parsed.expected_result).replace(/\*\*/g, '')}`);
+        markdownLines.push(`\n**${label}:**\n${String(expectedResult).replace(/\*\*/g, '')}`);
       }
       if (selectedFields.includes('actual_result') && parsed.actual_result && type === 'Bug') {
         markdownLines.push(`\n**Actual Result:**\n${String(parsed.actual_result).replace(/\*\*/g, '')}`);
@@ -223,7 +237,6 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
         markdownLines.push(`\n**Acceptance Criteria:**\n${cleanAC.map((c: string) => `- [ ] ${c}`).join('\n')}`);
       }
       if (selectedFields.includes('evidence')) {
-        const urlInPrompt = formattedConversation.match(/https?:\/\/\S+/)?.[0];
         const finalEvidence = (parsed.evidence || urlInPrompt || 'https://example.com/evidence').replace(/\*\*/g, '');
         markdownLines.push(`\n**Evidence:**\n${finalEvidence}`);
         parsed.evidence = finalEvidence;
@@ -240,11 +253,11 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       issue_type: type,
       title: hasTicketData ? cleanTitle : null,
       description: hasTicketData ? cleanDesc : null,
-      current_behavior: hasTicketData ? (parsed.current_behavior || null) : null,
-      expected_result: hasTicketData ? (parsed.expected_result || null) : null,
+      current_behavior: hasTicketData ? (parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null)) : null,
+      expected_result: hasTicketData ? (parsed.expected_result || (type === 'Improvement' || type === 'Bug' ? userContent : null)) : null,
       actual_result: hasTicketData ? (parsed.actual_result || null) : null,
       acceptance_criteria: hasTicketData ? (parsed.acceptance_criteria || null) : null,
-      evidence: hasTicketData ? (parsed.evidence || null) : null,
+      evidence: hasTicketData ? (parsed.evidence || urlInPrompt || null) : null,
       markdown: hasTicketData ? markdownLines.join('\n') : '',
       tokens_used: usage.totalTokens,
     });
