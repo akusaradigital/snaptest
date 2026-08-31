@@ -105,18 +105,32 @@ PROACTIVE QUESTIONING & AGENT PERSONALITY:
 
 - Tone: Professional, helpful, QA-focused.
 
-TEMPLATE FORMAT RULES (when ticket data is ready):
+TEMPLATE FORMAT RULES (You MUST populate all required fields for the detected type):
 - BUG:
-  - Title: "[Feature/Model Name] - [Specific concise issue summary]"
-  - Expected Result: Normal expected behavior.
-  - Actual Result: Exact failure/error reported.
+  - issue_type: "Bug"
+  - title: "[Feature/Module Name] - [Specific concise issue summary]"
+  - description: Clear problem description.
+  - expected_result: What should happen normally.
+  - actual_result: Exact failure or unresponsive behavior observed.
+  - acceptance_criteria: Array of verification checklist items.
+  - evidence: Exact URL from input or screenshot note.
+
 - IMPROVEMENT:
-  - Title: "[Feature Name] - [Specific improvement summary]"
-  - Current Behavior: Current state or pain point.
-  - Expected Result: Proposed/improved state.
+  - issue_type: "Improvement"
+  - title: "[Feature/Module Name] - [Specific improvement summary]"
+  - description: Problem statement and reason for improvement.
+  - current_behavior: How it currently works or current limitation.
+  - expected_result: How it should work after the improvement.
+  - acceptance_criteria: Array of criteria to verify the improvement.
+  - evidence: Exact URL from input.
+
 - NEW FEATURE:
-  - Title: "[Feature Name] - [Primary purpose]"
-  - Acceptance Criteria: Array of DoD checklist items.
+  - issue_type: "New Feature"
+  - title: "[Feature/Module Name] - [Feature summary/goal]"
+  - description: Overview of the new feature requirement.
+  - expected_result: Target workflow and expected outcome.
+  - acceptance_criteria: Array of clear acceptance criteria / DoD items.
+  - evidence: Exact URL or reference.
 
 STRICT CONTEXT RULES:
 - LANGUAGE: Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation, even in later turns and even if the user then switches back to a different language for a message — their explicit instruction always overrides the default of matching the latest message.
@@ -232,7 +246,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       if (selectedFields.includes('actual_result') && parsed.actual_result && type === 'Bug') {
         markdownLines.push(`\n**Actual Result:**\n${String(parsed.actual_result).replace(/\*\*/g, '')}`);
       }
-      if (selectedFields.includes('acceptance_criteria') && parsed.acceptance_criteria?.length && type === 'New Feature') {
+      if (selectedFields.includes('acceptance_criteria') && parsed.acceptance_criteria?.length) {
         const cleanAC = parsed.acceptance_criteria.map((c: string) => String(c).replace(/\*\*/g, '').trim());
         markdownLines.push(`\n**Acceptance Criteria:**\n${cleanAC.map((c: string) => `- [ ] ${c}`).join('\n')}`);
       }
