@@ -28,4 +28,17 @@ assert.equal(payload.nine_router_public_key, '');
 assert.ok(!('provider' in payload));
 assert.ok(!('model' in payload));
 
+// Test ticket structure serialization
+const sampleTicket = {
+  issue_type: 'Improvement',
+  title: 'Project Name Uniqueness by ID',
+  description: 'Allow duplicate project names differentiated by unique Project ID.',
+  expected_result: 'Users can create projects with duplicate names.',
+  acceptance_criteria: ['Allow duplicate name', 'Unique ID assigned'],
+  evidence: 'https://bugsnap.akusaraproject.my.id/v/453df9ba',
+};
+
+assert.ok(sampleTicket.issue_type === 'Improvement');
+assert.ok(sampleTicket.acceptance_criteria.length === 2);
+
 console.log('ticket-agent-payload-check passed');

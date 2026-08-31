@@ -33,6 +33,7 @@ export async function POST(request: Request) {
       prompt,
       fields,
       image_base64,
+      custom_rules,
       ai_provider,
       ai_model,
       api_key,
@@ -137,6 +138,7 @@ STRICT CONTEXT RULES:
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL, put that EXACT URL under "evidence".
+${custom_rules ? `\nUSER CUSTOM TICKET RULES & GUIDELINES:\n${custom_rules}\n` : ''}
 
 OUTPUT FORMAT:
 Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text values in the language determined by the LANGUAGE rule above:

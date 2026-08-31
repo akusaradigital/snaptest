@@ -51,6 +51,7 @@ export default function SettingsPage({
   const [integrationSearch, setIntegrationSearch] = useState("");
 
   const [customPrompt, setCustomPrompt] = useState("");
+  const [ticketCustomPrompt, setTicketCustomPrompt] = useState("");
 
   // Jira config state
   const [jiraAuthType, setJiraAuthType] = useState<"oauth2" | "pat">("oauth2");
@@ -104,6 +105,7 @@ export default function SettingsPage({
       try {
         const parsed = JSON.parse(savedPrompt);
         setCustomPrompt(parsed.customPrompt || "");
+        setTicketCustomPrompt(parsed.ticketCustomPrompt || "");
       } catch { /* ignore */ }
     }
 
@@ -294,7 +296,12 @@ export default function SettingsPage({
 
   const handleSavePrompt = () => {
     saveSettings("customPrompt", customPrompt);
-    toast.success("Custom prompt saved");
+    toast.success("Custom test prompt saved");
+  };
+
+  const handleSaveTicketPrompt = () => {
+    saveSettings("ticketCustomPrompt", ticketCustomPrompt);
+    toast.success("Custom ticket agent prompt saved");
   };
 
   const active = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
@@ -397,27 +404,51 @@ export default function SettingsPage({
           )}
 
           {activeSection === "generation" && (
-            <section className="max-w-2xl">
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-slate-500" />
-                <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Custom Prompt Template</h3>
-              </div>
-              <p className="mt-2 text-sm text-slate-500">
-                Extra instructions appended to the AI prompt when generating test cases.
-              </p>
-              <textarea
-                rows={8}
-                value={customPrompt}
-                onChange={(e) => setCustomPrompt(e.target.value)}
-                placeholder="e.g. Always use page.getByTestId() instead of classes. Ensure all tests run in parallel. Add accessibility checks."
-                className="input-field mt-4 resize-y text-sm"
-              />
-              <div className="mt-4 flex justify-end">
-                <button type="button" onClick={handleSavePrompt} className="btn-primary text-xs">
-                  Save Prompt
-                </button>
-              </div>
-            </section>
+            <div className="max-w-2xl space-y-8">
+              <section>
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-slate-500" />
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Custom Test Case Prompt</h3>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  Extra instructions appended to the AI prompt when generating test cases.
+                </p>
+                <textarea
+                  rows={6}
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="e.g. Always use page.getByTestId() instead of classes. Ensure all tests run in parallel. Add accessibility checks."
+                  className="input-field mt-3 resize-y text-sm"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={handleSavePrompt} className="btn-primary text-xs">
+                    Save Test Prompt
+                  </button>
+                </div>
+              </section>
+
+              <section className="pt-6 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-purple-600" />
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Issue &amp; Ticket Agent Custom Rules</h3>
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  Custom rules or guidelines for Jira tickets (e.g. mandatory acceptance criteria rules, prefix naming conventions, priority mappings).
+                </p>
+                <textarea
+                  rows={6}
+                  value={ticketCustomPrompt}
+                  onChange={(e) => setTicketCustomPrompt(e.target.value)}
+                  placeholder="e.g. Always prefix bug titles with '[QA-REVIEW]'. Format acceptance criteria with Gherkin Given-When-Then. Always include team component tags."
+                  className="input-field mt-3 resize-y text-sm"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={handleSaveTicketPrompt} className="btn-primary text-xs">
+                    Save Ticket Rules
+                  </button>
+                </div>
+              </section>
+            </div>
           )}
 
           {activeSection === "workspace" && (

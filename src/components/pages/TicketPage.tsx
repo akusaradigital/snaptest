@@ -565,12 +565,19 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         image_base64: m.image_base64,
       }));
 
+      let customRules = "";
+      try {
+        const snapSettings = JSON.parse(localStorage.getItem("snaptest_settings") || "{}");
+        customRules = snapSettings.ticketCustomPrompt || "";
+      } catch {}
+
       const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch("/api/ticket/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: formattedHistory,
+          custom_rules: customRules,
           ...aiPayload,
         }),
       });
