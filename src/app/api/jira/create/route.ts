@@ -115,16 +115,18 @@ function buildJiraDescriptionADF(payload: Record<string, any>) {
       content: [{ type: 'text', text: 'Evidence' }],
     });
     const evi = (payload.evidence || '').trim();
-    const isUrl = /^https?:\/\//i.test(evi);
-    if (isUrl) {
-      content.push({
-        type: 'paragraph',
-        content: [
-          {
-            type: 'inlineCard',
-            attrs: { url: evi },
-          },
-        ],
+    const urls = evi.match(/https?:\/\/[^\s,]+/gi) || [];
+    if (urls.length > 0) {
+      (Array.from(new Set(urls)) as string[]).forEach((url: string) => {
+        content.push({
+          type: 'paragraph',
+          content: [
+            {
+              type: 'inlineCard',
+              attrs: { url: url.trim() },
+            },
+          ],
+        });
       });
     } else {
       content.push(textToAdfParagraph(evi));

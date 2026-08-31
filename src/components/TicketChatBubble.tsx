@@ -7,6 +7,16 @@ import toast from "react-hot-toast";
 
 const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 
+const parseEvidenceUrls = (raw?: string) => {
+  if (!raw) return [];
+  const urls = String(raw).match(/https?:\/\/[^\s,]+/gi) || [];
+  if (urls.length > 0) {
+    return Array.from(new Set(urls));
+  }
+  const clean = String(raw).trim();
+  return clean ? [clean] : [];
+};
+
 export default function TicketChatBubble({
   msg,
   onPushToJira,
@@ -83,7 +93,12 @@ export default function TicketChatBubble({
     if (t.acceptance_criteria?.length) {
       lines.push(`\n**Acceptance Criteria:**\n${t.acceptance_criteria.map((c: string) => `- [ ] ${stripStars(c)}`).join("\n")}`);
     }
-    if (t.evidence) lines.push(`\n**Evidence:**\n${t.evidence}`);
+    if (t.evidence) {
+      const urls = parseEvidenceUrls(t.evidence);
+      if (urls.length > 0) {
+        lines.push(`\n**Evidence:**\n${urls.join("\n")}`);
+      }
+    }
     return lines.join("\n");
   };
 
@@ -272,6 +287,35 @@ export default function TicketChatBubble({
                   </span>
                 )}
               </div>
+
+              {jiraConfigured && jiraMembers && jiraMembers.length > 0 && !readOnly && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Assignee:</span>
+                  <select
+                    value={ticket.assignee_id || ""}
+                    onChange={(e) => {
+                      const selectedUser = jiraMembers.find(u => u.accountId === e.target.value);
+                      onUpdateTicket?.(msg.id, {
+                        assignee_id: e.target.value,
+                        assignee_name: selectedUser?.displayName || "",
+                      });
+                      if (selectedUser) {
+                        toast.success(`Assigned to ${selectedUser.displayName}`);
+                      } else {
+                        toast.success("Set to Unassigned");
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    <option value="">👤 Unassigned</option>
+                    {jiraMembers.map(u => (
+                      <option key={u.accountId} value={u.accountId}>
+                        👤 {u.displayName}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             {/* Timeline Tracking Status */}
@@ -488,19 +532,36 @@ export default function TicketChatBubble({
 
           {ticket.evidence && (
             <div>
-              <p className="font-bold mb-1 flex items-center gap-1.5">
-                Evidence:
-                {evidenceInfo && (
-                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-normal text-slate-600 dark:text-slate-300">
-                    {evidenceInfo.icon}
-                    <span>{evidenceInfo.label}</span>
-                  </span>
-                )}
-              </p>
-              <a href={ticket.evidence} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs flex items-center gap-1">
-                <span>{ticket.evidence}</span>
-                <ExternalLink className="w-3 h-3 inline-block shrink-0" />
-              </a>
+              <p className="font-bold mb-1.5">Evidence:</p>
+              <div className="space-y-1.5">
+                {parseEvidenceUrls(ticket.evidence).map((url: string, idx: number) => {
+                  const info = getEvidenceType(url);
+                  const isLink = /^https?:\/\//i.test(url);
+                  return (
+                    <div key={idx} className="flex items-center gap-2 flex-wrap">
+                      {info && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-normal text-slate-600 dark:text-slate-300">
+                          {info.icon}
+                          <span>{info.label}</span>
+                        </span>
+                      )}
+                      {isLink ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs flex items-center gap-1 hover:text-indigo-800"
+                        >
+                          <span>{url}</span>
+                          <ExternalLink className="w-3 h-3 inline-block shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="text-xs text-slate-700 dark:text-slate-200">{url}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
           </>
