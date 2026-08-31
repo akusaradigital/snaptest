@@ -405,7 +405,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
               rows={5}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runGenerate(input, () => setInput('')); } }}
+              onKeyDown={(e) => { if (((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey))) { e.preventDefault(); runGenerate(input, () => setInput('')); } }}
               placeholder="Paste a PRD, User Story, Acceptance Criteria, Gherkin, or plain text..."
               disabled={loading}
               className="w-full text-sm leading-relaxed px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y min-h-[96px]"
@@ -491,7 +491,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
                     rows={2}
                     value={refine}
                     onChange={(e) => setRefine(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); runGenerate(refine, () => setRefine('')); } }}
+                    onKeyDown={(e) => { if (((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey))) { e.preventDefault(); runGenerate(refine, () => setRefine('')); } }}
                     placeholder="Refine plan — e.g. 'Add edge cases for empty and invalid input'..."
                     disabled={loading}
                     className="flex-1 text-xs leading-relaxed px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none max-h-32"

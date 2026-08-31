@@ -1054,7 +1054,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                 onChange={(e) => setInputText(e.target.value)}
                 onPaste={handlePaste}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+                  if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); handleSend(); }
                 }}
                 placeholder="Ask AI or give target URL..."
                 disabled={busy}

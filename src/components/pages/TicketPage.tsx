@@ -967,7 +967,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 onChange={(e) => setInputText(e.target.value)}
                 onPaste={handlePaste}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
+                  if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && !e.shiftKey)) {
                     e.preventDefault();
                     handleSendMessage();
                   }
@@ -981,7 +981,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 type="submit"
                 disabled={isLoading || (!inputText.trim() && !imageBase64)}
                 className="p-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition shrink-0"
-                title="Send message (Enter)"
+                title="Send message (Enter or Ctrl+Enter)"
               >
                 <Send className="w-4 h-4" />
               </button>
