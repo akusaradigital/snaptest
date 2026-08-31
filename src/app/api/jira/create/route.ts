@@ -85,13 +85,26 @@ function buildJiraDescriptionADF(payload: Record<string, any>) {
       content: [{ type: 'text', text: 'Acceptance Criteria' }],
     });
     content.push({
-      type: 'bulletList',
+      type: 'taskList',
+      attrs: { localId: `task-list-${Date.now()}` },
       content: payload.acceptance_criteria
-        .filter((c: string) => c && c.trim())
-        .map((c: string) => ({
-          type: 'listItem',
-          content: [textToAdfParagraph(c)],
-        })),
+        .filter((c: string) => c && String(c).trim())
+        .map((c: string, idx: number) => {
+          const cleanText = String(c).replace(/^[-*]\s*(\[[ xX]\]\s*)?/, '').replace(/\*\*/g, '').trim();
+          return {
+            type: 'taskItem',
+            attrs: {
+              localId: `task-item-${Date.now()}-${idx}`,
+              state: 'TODO',
+            },
+            content: [
+              {
+                type: 'text',
+                text: cleanText,
+              },
+            ],
+          };
+        }),
     });
   }
 
@@ -188,22 +201,60 @@ export async function POST(request: Request) {
       mappedType = 'Bug';
     }
 
+    // Map AI priority (P0/P1/P2/P3) to Jira standard priorities (Highest, High, Medium, Low)
+    let mappedPriority: string | null = null;
+    const rawPriority = (rest.priority || '').trim().toUpperCase();
+    if (rawPriority === 'P0' || rawPriority.includes('CRITICAL') || rawPriority.includes('HIGHEST') || rawPriority.includes('BLOCKER')) {
+      mappedPriority = 'Highest';
+    } else if (rawPriority === 'P1' || rawPriority.includes('HIGH')) {
+      mappedPriority = 'High';
+    } else if (rawPriority === 'P2' || rawPriority.includes('MEDIUM')) {
+      mappedPriority = 'Medium';
+    } else if (rawPriority === 'P3' || rawPriority.includes('LOW')) {
+      mappedPriority = 'Low';
+    } else if (mappedType === 'Bug') {
+      mappedPriority = 'High';
+    } else {
+      mappedPriority = 'Medium';
+    }
+
     const adfDescription = buildJiraDescriptionADF({ ...rest, description: rest.description });
 
-    const jiraBody = {
-      fields: {
-        project: { key: projectKey },
-        summary: title.replace(/\s+/g, ' ').trim().substring(0, 250),
-        issuetype: { name: mappedType },
-        description: adfDescription,
-      },
+    const jiraFields: Record<string, any> = {
+      project: { key: projectKey },
+      summary: title.replace(/\s+/g, ' ').trim().substring(0, 250),
+      issuetype: { name: mappedType },
+      description: adfDescription,
     };
 
-    const res = await validatedAxiosRequest(destination, {
-      method: 'POST', data: jiraBody,
-      headers,
-      timeout: 15000,
-    });
+    if (mappedPriority) {
+      jiraFields.priority = { name: mappedPriority };
+    }
+
+    const jiraBody = { fields: jiraFields };
+
+    let res;
+    try {
+      res = await validatedAxiosRequest(destination, {
+        method: 'POST',
+        data: jiraBody,
+        headers,
+        timeout: 15000,
+      });
+    } catch (createErr: any) {
+      // Fallback: If Jira project schema does not include/allow the 'priority' field, retry without priority
+      if (createErr.response?.data?.errors?.priority && jiraFields.priority) {
+        delete jiraFields.priority;
+        res = await validatedAxiosRequest(destination, {
+          method: 'POST',
+          data: { fields: jiraFields },
+          headers,
+          timeout: 15000,
+        });
+      } else {
+        throw createErr;
+      }
+    }
     if (res.status >= 400) throw new Error('Jira rejected the request');
 
     const issueKey = res.data.key;
