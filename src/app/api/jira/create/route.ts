@@ -277,10 +277,34 @@ export async function POST(request: Request) {
     const issueKey = res.data.key;
     const issueUrl = cleanDomain ? `https://${cleanDomain}/browse/${issueKey}` : `https://api.atlassian.com/ex/jira/${cloud_id}/browse/${issueKey}`;
 
+    // Auto-link to existing similar Jira issue if linked_issue_key provided (Feature 9)
+    const linkedIssueKey = rest.linked_issue_key || rest.linked_issue?.key || null;
+    if (linkedIssueKey && String(linkedIssueKey).trim()) {
+      try {
+        const linkDestination = isOAuth
+          ? `https://api.atlassian.com/ex/jira/${cloud_id}/rest/api/3/issueLink`
+          : `https://${cleanDomain}/rest/api/3/issueLink`;
+
+        await validatedAxiosRequest(linkDestination, {
+          method: 'POST',
+          headers,
+          data: {
+            type: { name: 'Relates' },
+            inwardIssue: { key: issueKey },
+            outwardIssue: { key: String(linkedIssueKey).trim().toUpperCase() },
+          },
+          timeout: 10000,
+        });
+      } catch (linkErr) {
+        console.warn('Failed to create Jira issue link (non-fatal):', linkErr);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       issue_key: issueKey,
       issue_url: issueUrl,
+      linked_issue_key: linkedIssueKey,
     });
   } catch (err) {
     console.error('Jira create failed:', err);

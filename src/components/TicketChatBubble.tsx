@@ -28,6 +28,9 @@ export default function TicketChatBubble({
   aksoraConfigured = true,
   pushingAksora = false,
   onUpdateTicket,
+  allSessions = [],
+  currentSessionId,
+  onSelectSession,
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
@@ -39,12 +42,46 @@ export default function TicketChatBubble({
   aksoraConfigured?: boolean;
   pushingAksora?: boolean;
   onUpdateTicket?: (messageId: string, updates: Record<string, any>) => void;
+  allSessions?: Array<{ id: string; title: string; messages: ChatMessage[] }>;
+  currentSessionId?: string | null;
+  onSelectSession?: (sessionId: string) => void;
 }) {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [checkedCriteria, setCheckedCriteria] = useState<Record<number, boolean>>({});
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showUnassignedWarningModal, setShowUnassignedWarningModal] = useState(false);
+  const [syncingStatus, setSyncingStatus] = useState(false);
+  const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
+
+  const handleSyncJiraStatus = async (issueKey: string) => {
+    setSyncingStatus(true);
+    try {
+      const config = JSON.parse(localStorage.getItem("jira_config") || "{}");
+      const res = await fetch("/api/jira/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          issue_key: issueKey,
+          auth_type: config.auth_type,
+          access_token: config.access_token,
+          cloud_id: config.cloud_id,
+          domain: config.domain,
+          email: config.email,
+          token: config.token,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.detail || "Failed to fetch status");
+      setJiraLiveStatus({ status: data.status, assignee_name: data.assignee_name });
+      toast.success(`Jira Status: ${data.status}${data.assignee_name ? ` (${data.assignee_name})` : ""}`);
+    } catch (err: any) {
+      toast.error(err.message || "Could not sync status");
+    } finally {
+      setSyncingStatus(false);
+    }
+  };
 
   const startEditing = () => {
     setDraft({
@@ -209,6 +246,42 @@ export default function TicketChatBubble({
 
   const evidenceInfo = getEvidenceType(ticket?.evidence);
 
+  // Auto-detect similar past tickets from other chat sessions (Feature 9)
+  const similarTicket = (() => {
+    if (!ticket?.title || allSessions.length <= 1) return null;
+    const currentWords = stripStars(ticket.title).toLowerCase().split(/\s+/).filter(w => w.length > 3);
+    if (currentWords.length === 0) return null;
+
+    for (const session of allSessions) {
+      if (session.id === currentSessionId) continue;
+      for (const m of session.messages) {
+        if (m.role === "assistant" && m.ticket_result?.title) {
+          const otherTitle = stripStars(m.ticket_result.title).toLowerCase();
+          const matchCount = currentWords.filter(w => otherTitle.includes(w)).length;
+          const matchRatio = matchCount / currentWords.length;
+          if (matchRatio >= 0.5) {
+            return {
+              sessionId: session.id,
+              sessionTitle: session.title,
+              ticketTitle: m.ticket_result.title,
+              jiraKey: m.ticket_result.jira_key,
+              jiraUrl: m.ticket_result.jira_url,
+            };
+          }
+        }
+      }
+    }
+    return null;
+  })();
+
+  const handlePushClick = () => {
+    if (!ticket?.assignee_id && jiraConfigured) {
+      setShowUnassignedWarningModal(true);
+    } else if (ticket) {
+      onPushToJira?.(ticket);
+    }
+  };
+
   return (
     <div className={`p-4 rounded-2xl text-sm ${
       isUser
@@ -330,6 +403,49 @@ export default function TicketChatBubble({
               </span>
             </div>
           </div>
+
+          {/* Similar Duplicate Ticket Detected Banner (Feature 9) */}
+          {similarTicket && (
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 text-xs">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span className="truncate">
+                  Similar past ticket: <strong>{stripStars(similarTicket.ticketTitle)}</strong>
+                  {similarTicket.jiraKey ? ` (${similarTicket.jiraKey})` : ""}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {similarTicket.jiraKey && !readOnly && onUpdateTicket && (
+                  ticket.linked_issue_key === similarTicket.jiraKey ? (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
+                      🔗 Linked to {similarTicket.jiraKey}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onUpdateTicket(msg.id, { linked_issue_key: similarTicket.jiraKey });
+                        toast.success(`Will link to ${similarTicket.jiraKey} on push`);
+                      }}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-200/80 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 hover:bg-amber-300 transition"
+                      title="Link this issue to previous Jira issue as related work item"
+                    >
+                      + Link to {similarTicket.jiraKey} in Jira
+                    </button>
+                  )
+                )}
+                {onSelectSession && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectSession(similarTicket.sessionId)}
+                    className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                  >
+                    View Chat
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
 
           {msg.content && <p className="text-slate-600 dark:text-slate-300 italic mb-2 text-xs">{msg.content}</p>}
 
@@ -572,15 +688,32 @@ export default function TicketChatBubble({
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
               {ticket.jira_key && ticket.jira_url ? (
-                <a
-                  href={ticket.jira_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
-                >
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Pushed ({ticket.jira_key})</span>
-                </a>
+                <div className="flex items-center gap-1">
+                  <a
+                    href={ticket.jira_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                  >
+                    <Check className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Pushed ({ticket.jira_key})</span>
+                  </a>
+                  {jiraLiveStatus ? (
+                    <span className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
+                      {jiraLiveStatus.status}
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleSyncJiraStatus(ticket.jira_key)}
+                      disabled={syncingStatus}
+                      className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-600 transition"
+                      title="Sync live status from Jira"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${syncingStatus ? "animate-spin text-indigo-600" : ""}`} />
+                    </button>
+                  )}
+                </div>
               ) : !readOnly && !jiraConfigured ? (
                 <a
                   href="/settings?tab=integrations"
@@ -592,7 +725,7 @@ export default function TicketChatBubble({
               ) : !readOnly && onPushToJira ? (
                 <button
                   type="button"
-                  onClick={() => onPushToJira(ticket)}
+                  onClick={handlePushClick}
                   disabled={pushingJira}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -747,6 +880,69 @@ export default function TicketChatBubble({
                 className="btn-secondary text-xs"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Unassigned Confirmation Warning Modal (Feature 4) */}
+      {showUnassignedWarningModal && ticket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push as Unassigned?</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  This issue does not have an Assignee selected yet.
+                </p>
+              </div>
+            </div>
+
+            {jiraMembers && jiraMembers.length > 0 && (
+              <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Assignee now (optional):</span>
+                <select
+                  value={ticket.assignee_id || ""}
+                  onChange={(e) => {
+                    const u = jiraMembers.find(m => m.accountId === e.target.value);
+                    onUpdateTicket?.(msg.id, {
+                      assignee_id: e.target.value,
+                      assignee_name: u?.displayName || "",
+                    });
+                  }}
+                  className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                >
+                  <option value="">Leave Unassigned</option>
+                  {jiraMembers.map(u => (
+                    <option key={u.accountId} value={u.accountId}>
+                      👤 {u.displayName} {u.emailAddress ? `(${u.emailAddress})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowUnassignedWarningModal(false)}
+                className="btn-secondary text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnassignedWarningModal(false);
+                  onPushToJira?.(ticket);
+                }}
+                className="btn-primary text-xs"
+              >
+                {ticket.assignee_id ? "Push to Jira" : "Push without Assignee"}
               </button>
             </div>
           </div>

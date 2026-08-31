@@ -986,6 +986,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     aksoraConfigured={aksoraConfigured}
                     pushingAksora={pushingAksora}
                     onUpdateTicket={handleUpdateTicket}
+                    allSessions={sessions}
+                    currentSessionId={activeSessionId}
+                    onSelectSession={handleSelectSession}
                   />
                   {msg.role === "assistant" && idx === messages.length - 1 && !isLoading && (
                     <button
