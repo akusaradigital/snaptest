@@ -47,6 +47,20 @@ const TICKET_SESSIONS_STORAGE = "snaptest_ticket_sessions_v2";
 
 const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 
+const toTicketResult = (data: Record<string, any>) => data.ticket_data || {
+  has_ticket_data: data.has_ticket_data,
+  fields: data.fields,
+  issue_type: data.issue_type,
+  title: data.title,
+  description: data.description,
+  current_behavior: data.current_behavior,
+  expected_result: data.expected_result,
+  actual_result: data.actual_result,
+  acceptance_criteria: data.acceptance_criteria,
+  evidence: data.evidence,
+  markdown: data.markdown,
+};
+
 export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -564,11 +578,12 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to generate ticket");
 
+      const ticketResult = toTicketResult(data);
       const botMsg: ChatMessage = {
         id: "msg_" + Date.now(),
         role: "assistant",
         content: data.assistant_reply || "Here is the updated Jira ticket.",
-        ticket_result: data.ticket_data || undefined,
+        ticket_result: ticketResult.has_ticket_data !== false ? ticketResult : undefined,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -576,8 +591,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         if (s.id !== currentSessionId) return s;
         // Auto-generate title from first ticket draft or input
         let newTitle = s.title;
-        if (s.title === "New Ticket Chat" && data.ticket_data?.title) {
-          newTitle = data.ticket_data.title.substring(0, 30);
+        if (s.title === "New Ticket Chat" && ticketResult.title) {
+          newTitle = ticketResult.title.substring(0, 30);
         }
         return {
           ...s,
