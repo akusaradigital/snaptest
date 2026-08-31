@@ -75,6 +75,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [jiraLink, setJiraLink] = useState<{ key: string; url: string } | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [jiraConfigured, setJiraConfigured] = useState(false);
+  const [jiraMembers, setJiraMembers] = useState<Array<{ accountId: string; displayName: string; emailAddress?: string; avatarUrl?: string }>>([]);
   const [pushingAksora, setPushingAksora] = useState(false);
   const [aksoraConfigured, setAksoraConfigured] = useState(false);
   const [sessionSearch, setSessionSearch] = useState("");
@@ -92,6 +93,26 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
         saved.project_key
       );
       setJiraConfigured(isConnected);
+      if (isConnected) {
+        fetch("/api/jira/members", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            auth_type: saved.auth_type,
+            access_token: saved.access_token,
+            cloud_id: saved.cloud_id,
+            domain: saved.domain,
+            email: saved.email,
+            token: saved.token,
+            project_key: saved.project_key,
+          }),
+        })
+          .then((r) => r.json())
+          .then((d) => {
+            if (Array.isArray(d.users)) setJiraMembers(d.users);
+          })
+          .catch(() => {});
+      }
     } catch {
       setJiraConfigured(false);
     }
@@ -959,6 +980,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     }
                     onPushToJira={handlePushToJira}
                     jiraConfigured={jiraConfigured}
+                    jiraMembers={jiraMembers}
                     pushingJira={pushingJira}
                     onPushToAksora={handlePushToAksora}
                     aksoraConfigured={aksoraConfigured}

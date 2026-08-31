@@ -12,6 +12,7 @@ export default function TicketChatBubble({
   onPushToJira,
   readOnly = false,
   jiraConfigured = true,
+  jiraMembers = [],
   pushingJira = false,
   onPushToAksora,
   aksoraConfigured = true,
@@ -22,6 +23,7 @@ export default function TicketChatBubble({
   onPushToJira?: (ticketResult: Record<string, any>) => void;
   readOnly?: boolean;
   jiraConfigured?: boolean;
+  jiraMembers?: Array<{ accountId: string; displayName: string; emailAddress?: string; avatarUrl?: string }>;
   pushingJira?: boolean;
   onPushToAksora?: (ticketResult: Record<string, any>) => void;
   aksoraConfigured?: boolean;
@@ -40,6 +42,8 @@ export default function TicketChatBubble({
       title: stripStars(msg.ticket_result?.title),
       description: stripStars(msg.ticket_result?.description),
       component: msg.ticket_result?.component || "",
+      assignee_id: msg.ticket_result?.assignee_id || "",
+      assignee_name: msg.ticket_result?.assignee_name || "",
       current_behavior: stripStars(msg.ticket_result?.current_behavior),
       expected_result: stripStars(msg.ticket_result?.expected_result),
       actual_result: stripStars(msg.ticket_result?.actual_result),
@@ -299,15 +303,42 @@ export default function TicketChatBubble({
                   className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
                 />
               </label>
-              <label className="block">
-                <span className="text-xs font-bold text-slate-500">Component / Module (Optional)</span>
-                <input
-                  value={draft.component || ""}
-                  onChange={(e) => setDraft({ ...draft, component: e.target.value })}
-                  placeholder="e.g. Auth, Payment, Talent Library"
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                />
-              </label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-xs font-bold text-slate-500">Component / Module</span>
+                  <input
+                    value={draft.component || ""}
+                    onChange={(e) => setDraft({ ...draft, component: e.target.value })}
+                    placeholder="e.g. Talent Library"
+                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </label>
+
+                {jiraConfigured && jiraMembers && jiraMembers.length > 0 && (
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500">Jira Assignee</span>
+                    <select
+                      value={draft.assignee_id || ""}
+                      onChange={(e) => {
+                        const selectedUser = jiraMembers.find(u => u.accountId === e.target.value);
+                        setDraft({
+                          ...draft,
+                          assignee_id: e.target.value,
+                          assignee_name: selectedUser?.displayName || "",
+                        });
+                      }}
+                      className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    >
+                      <option value="">Unassigned</option>
+                      {jiraMembers.map(user => (
+                        <option key={user.accountId} value={user.accountId}>
+                          {user.displayName} {user.emailAddress ? `(${user.emailAddress})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+              </div>
               <label className="block">
                 <span className="text-xs font-bold text-slate-500">Description</span>
                 <textarea
@@ -382,14 +413,26 @@ export default function TicketChatBubble({
             <p><strong>Title:</strong> {stripStars(ticket.title)}</p>
           )}
 
-          {ticket.component && (
-            <div className="flex items-center gap-1.5">
-              <span className="font-bold text-xs">Component:</span>
-              <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium">
-                {ticket.component}
-              </span>
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {ticket.component && (
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-xs">Component:</span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium">
+                  {ticket.component}
+                </span>
+              </div>
+            )}
+
+            {ticket.assignee_name && (
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-xs">Assignee:</span>
+                <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                  {ticket.assignee_name}
+                </span>
+              </div>
+            )}
+          </div>
 
           {ticket.description && (
             <div>

@@ -220,6 +220,8 @@ export async function POST(request: Request) {
 
     const adfDescription = buildJiraDescriptionADF({ ...rest, description: rest.description });
 
+    const assigneeAccountId = rest.assignee_id || rest.assignee_account_id || rest.assignee?.accountId || null;
+
     const jiraFields: Record<string, any> = {
       project: { key: projectKey },
       summary: title.replace(/\s+/g, ' ').trim().substring(0, 250),
@@ -229,6 +231,10 @@ export async function POST(request: Request) {
 
     if (mappedPriority) {
       jiraFields.priority = { name: mappedPriority };
+    }
+
+    if (assigneeAccountId) {
+      jiraFields.assignee = { accountId: assigneeAccountId };
     }
 
     const jiraBody = { fields: jiraFields };
@@ -242,9 +248,18 @@ export async function POST(request: Request) {
         timeout: 15000,
       });
     } catch (createErr: any) {
-      // Fallback: If Jira project schema does not include/allow the 'priority' field, retry without priority
-      if (createErr.response?.data?.errors?.priority && jiraFields.priority) {
+      // Fallback: If Jira project schema rejects priority or assignee, retry with sanitized fields
+      const errors = createErr.response?.data?.errors || {};
+      let modified = false;
+      if (errors.priority && jiraFields.priority) {
         delete jiraFields.priority;
+        modified = true;
+      }
+      if (errors.assignee && jiraFields.assignee) {
+        delete jiraFields.assignee;
+        modified = true;
+      }
+      if (modified) {
         res = await validatedAxiosRequest(destination, {
           method: 'POST',
           data: { fields: jiraFields },
