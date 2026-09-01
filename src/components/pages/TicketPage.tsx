@@ -20,6 +20,8 @@ import {
   RotateCcw,
   Edit2,
   FileSpreadsheet,
+  Pin,
+  Bookmark,
 } from "lucide-react";
 
 interface TicketPageProps {
@@ -42,6 +44,7 @@ export interface ChatSession {
   title: string;
   updatedAt: string;
   messages: ChatMessage[];
+  pinned?: boolean;
 }
 
 const TICKET_SESSIONS_STORAGE = "snaptest_ticket_sessions_v2";
@@ -346,6 +349,14 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
     toast.success("Renamed chat");
   };
 
+  const handleTogglePinSession = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = sessions.map(s => s.id === id ? { ...s, pinned: !s.pinned } : s);
+    const target = updated.find(s => s.id === id);
+    saveSessionsToStorage(updated, target);
+    toast.success(target?.pinned ? "Chat pinned to top" : "Chat unpinned");
+  };
+
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -500,7 +511,12 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       if (!res.ok) throw new Error(data.detail || "Failed to create Jira issue");
 
       setJiraLink({ key: data.issue_key, url: data.issue_url });
-      toast.success(`Created Jira issue ${data.issue_key}!`);
+      if (data.issue_url) {
+        navigator.clipboard.writeText(data.issue_url).catch(() => {});
+        toast.success(`Created ${data.issue_key} & link copied to clipboard!`);
+      } else {
+        toast.success(`Created Jira issue ${data.issue_key}!`);
+      }
 
       // Opsi 3: Simpan jira_key & jira_url ke ticket_result pesan yang dipush
       if (activeSessionId) {
@@ -937,7 +953,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             <p className="text-xs text-slate-400 text-center py-6">No previous chats</p>
           ) : (
             (() => {
-              const filtered = sessions.filter(s => {
+              const sortedSessions = [...sessions].sort((a, b) => {
+                if (a.pinned && !b.pinned) return -1;
+                if (!a.pinned && b.pinned) return 1;
+                return 0;
+              });
+
+              const filtered = sortedSessions.filter(s => {
                 const matchSearch = !sessionSearch ||
                   s.title.toLowerCase().includes(sessionSearch.toLowerCase()) ||
                   s.messages.some(m => m.content.toLowerCase().includes(sessionSearch.toLowerCase()));
@@ -982,6 +1004,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                       ) : (
                         <>
                           <div className="flex items-center gap-1.5 mb-0.5">
+                            {s.pinned && <Pin className="w-3 h-3 text-amber-500 shrink-0 fill-amber-500 rotate-45" />}
                             <p className="truncate font-medium">{s.title}</p>
                           </div>
                           <div className="flex items-center justify-between gap-1 text-[10px] text-slate-400">
@@ -1004,6 +1027,14 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     </div>
 
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => handleTogglePinSession(s.id, e)}
+                        className={`p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition ${s.pinned ? "text-amber-500" : "text-slate-400 hover:text-amber-500"}`}
+                        title={s.pinned ? "Unpin chat" : "Pin chat to top"}
+                      >
+                        <Pin className={`w-3.5 h-3.5 ${s.pinned ? "fill-amber-500" : ""}`} />
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => handleStartRename(s.id, s.title, e)}

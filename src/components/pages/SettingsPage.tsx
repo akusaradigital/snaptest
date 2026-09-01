@@ -80,6 +80,7 @@ export default function SettingsPage({
   const [testingSheets, setTestingSheets] = useState(false);
   const [savedSheets, setSavedSheets] = useState(false);
   const [sheetsConnected, setSheetsConnected] = useState(false);
+  const [hideInactiveIntegrations, setHideInactiveIntegrations] = useState(true);
 
   // Check URL params for OAuth results
   useEffect(() => {
@@ -114,6 +115,9 @@ export default function SettingsPage({
         const parsed = JSON.parse(savedPrompt);
         setCustomPrompt(parsed.customPrompt || "");
         setTicketCustomPrompt(parsed.ticketCustomPrompt || "");
+        if (parsed.hideInactiveIntegrations !== undefined) {
+          setHideInactiveIntegrations(parsed.hideInactiveIntegrations);
+        }
       } catch { /* ignore */ }
     }
 
@@ -553,18 +557,33 @@ export default function SettingsPage({
                 <div>
                   <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
-                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Connect Apps & Backlogs</h3>
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-white">Connect Apps &amp; Backlogs</h3>
                       <p className="text-xs text-slate-500">Select an integration to configure and push QA artifacts.</p>
                     </div>
-                    <div className="relative w-full sm:w-64">
-                      <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
-                      <input
-                        type="text"
-                        value={integrationSearch}
-                        onChange={(e) => setIntegrationSearch(e.target.value)}
-                        placeholder="Search apps..."
-                        className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 placeholder-slate-400"
-                      />
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={hideInactiveIntegrations}
+                          onChange={(e) => {
+                            setHideInactiveIntegrations(e.target.checked);
+                            saveSettings("hideInactiveIntegrations", e.target.checked);
+                            toast.success(e.target.checked ? "Only active integrations shown on tickets" : "All integration options shown on tickets");
+                          }}
+                          className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <span>Only show active integrations on tickets</span>
+                      </label>
+                      <div className="relative w-full sm:w-56">
+                        <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                        <input
+                          type="text"
+                          value={integrationSearch}
+                          onChange={(e) => setIntegrationSearch(e.target.value)}
+                          placeholder="Search apps..."
+                          className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-200 placeholder-slate-400"
+                        />
+                      </div>
                     </div>
                   </div>
 

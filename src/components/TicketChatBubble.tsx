@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
@@ -58,6 +58,9 @@ export default function TicketChatBubble({
   const [checkedCriteria, setCheckedCriteria] = useState<Record<number, boolean>>({});
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showUnassignedWarningModal, setShowUnassignedWarningModal] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [hoveredExport, setHoveredExport] = useState<string | null>(null);
+  const [isCompactView, setIsCompactView] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
 
@@ -172,6 +175,25 @@ export default function TicketChatBubble({
     const md = msg.ticket_result?.markdown || generateMarkdown();
     const title = (msg.ticket_result?.title || "ticket").replace(/[^a-z0-9]/gi, "_").toLowerCase();
     downloadFile(md, `${title}.md`, "text/markdown");
+  };
+
+  const handleShareTicket = async () => {
+    try {
+      const shareData = {
+        title: msg.ticket_result?.title || "QA Ticket",
+        text: generateMarkdown(),
+        url: window.location.href,
+      };
+      if (navigator.share && typeof navigator.canShare === "function" && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(`${window.location.origin}/ticket#${currentSessionId || ""}`);
+        toast.success("Ticket link copied to clipboard!");
+      }
+    } catch {
+      await navigator.clipboard.writeText(`${window.location.origin}/ticket#${currentSessionId || ""}`);
+      toast.success("Ticket link copied to clipboard!");
+    }
   };
 
   const handleDownloadJson = () => {
@@ -420,8 +442,17 @@ export default function TicketChatBubble({
               )}
             </div>
 
-            {/* Timeline Tracking Status */}
-            <div className="flex items-center gap-1.5">
+            {/* Timeline Tracking Status & Compact View Toggle */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCompactView(!isCompactView)}
+                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
+                title={isCompactView ? "Switch to detailed ticket view" : "Switch to compact 1-paragraph view"}
+              >
+                {isCompactView ? "Full View" : "Compact"}
+              </button>
+
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
                 isPushed
                   ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
@@ -596,6 +627,20 @@ export default function TicketChatBubble({
                 </button>
               </div>
             </div>
+          ) : isCompactView ? (
+            /* Compact 1-Paragraph View Mode */
+            <div className="bg-slate-50 dark:bg-slate-900/40 p-3 rounded-xl border border-slate-200 dark:border-slate-700/80 text-xs space-y-1.5 leading-relaxed">
+              <p className="font-semibold text-slate-900 dark:text-slate-100">
+                {stripStars(ticket.title)}
+              </p>
+              <p className="text-slate-600 dark:text-slate-300">
+                {stripStars(ticket.description)}
+              </p>
+              <p className="text-slate-500 dark:text-slate-400">
+                <strong>Expected:</strong> {stripStars(ticket.expected_result)}
+                {ticket.actual_result ? ` — Actual: ${stripStars(ticket.actual_result)}` : ""}
+              </p>
+            </div>
           ) : (
           <>
           {ticket.title && (
@@ -712,23 +757,25 @@ export default function TicketChatBubble({
           </>
           )}
 
-          {/* Action Bar inside Chat Bubble */}
+          {/* Action Bar inside Chat Bubble — Simplified & Grouped */}
           {!isEditing && (
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
+            {/* Left side: Active Push Integrations & Statuses */}
             <div className="flex flex-wrap items-center gap-1.5">
+              {/* Jira Push / Status */}
               {ticket.jira_key && ticket.jira_url ? (
                 <div className="flex items-center gap-1">
                   <a
                     href={ticket.jira_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Pushed ({ticket.jira_key})</span>
                   </a>
                   {jiraLiveStatus ? (
-                    <span className="px-2 py-1 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
+                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
                       {jiraLiveStatus.status}
                     </span>
                   ) : (
@@ -736,110 +783,90 @@ export default function TicketChatBubble({
                       type="button"
                       onClick={() => handleSyncJiraStatus(ticket.jira_key)}
                       disabled={syncingStatus}
-                      className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-600 transition"
+                      className="p-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-600 transition"
                       title="Sync live status from Jira"
                     >
-                      <RefreshCw className={`w-3.5 h-3.5 ${syncingStatus ? "animate-spin text-indigo-600" : ""}`} />
+                      <RefreshCw className={`w-3 h-3 ${syncingStatus ? "animate-spin text-indigo-600" : ""}`} />
                     </button>
                   )}
                 </div>
-              ) : !readOnly && !jiraConfigured ? (
-                <a
-                  href="/settings?tab=integrations"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 transition"
-                >
-                  <Ticket className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Connect Jira</span>
-                </a>
-              ) : !readOnly && onPushToJira ? (
+              ) : !readOnly && jiraConfigured && onPushToJira ? (
                 <button
                   type="button"
                   onClick={handlePushClick}
                   disabled={pushingJira}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50"
+                  title="Push this issue to Jira Cloud"
                 >
                   {pushingJira ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
                   ) : (
                     <Ticket className="w-3.5 h-3.5 text-indigo-600" />
                   )}
-                  <span>{pushingJira ? "Pushing to Jira..." : "Push to Jira"}</span>
+                  <span>{pushingJira ? "Pushing..." : "Push to Jira"}</span>
                 </button>
               ) : null}
 
+              {/* Aksora Push / Status */}
               {ticket.aksora_pushed ? (
                 ticket.aksora_url ? (
                   <a
                     href={ticket.aksora_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Pushed to Aksora</span>
+                    <span>Aksora</span>
                   </a>
                 ) : (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Pushed to Aksora</span>
+                    <span>Aksora</span>
                   </span>
                 )
-              ) : !readOnly && !aksoraConfigured ? (
-                <a
-                  href="/settings?tab=integrations"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition"
-                >
-                  <Share2 className="w-3.5 h-3.5 text-slate-600" />
-                  <span>Connect Aksora</span>
-                </a>
-              ) : !readOnly && onPushToAksora ? (
+              ) : !readOnly && aksoraConfigured && onPushToAksora ? (
                 <button
                   type="button"
                   onClick={() => onPushToAksora(ticket)}
                   disabled={pushingAksora}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition disabled:opacity-50"
+                  title="Push to Aksora Workspace"
                 >
                   {pushingAksora ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
                   ) : (
-                    <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+                    <Share2 className="w-3.5 h-3.5 text-purple-600" />
                   )}
-                  <span>{pushingAksora ? "Pushing to Aksora..." : "Push to Aksora"}</span>
+                  <span>{pushingAksora ? "Pushing..." : "Push to Aksora"}</span>
                 </button>
               ) : null}
 
-              {/* Google Sheets Sync Button */}
+              {/* Google Sheets Sync / Status */}
               {ticket.sheets_synced ? (
                 ticket.sheets_url ? (
                   <a
                     href={ticket.sheets_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Synced to Sheet</span>
+                    <span>Sheets</span>
                   </a>
                 ) : (
-                  <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Synced to Sheet</span>
+                    <span>Sheets</span>
                   </span>
                 )
-              ) : !readOnly && !sheetsConfigured ? (
-                <a
-                  href="/settings?tab=integrations"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200 transition"
-                >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Connect Sheets</span>
-                </a>
-              ) : !readOnly && onSyncToSheets ? (
+              ) : !readOnly && sheetsConfigured && onSyncToSheets ? (
                 <button
                   type="button"
                   onClick={() => onSyncToSheets(ticket)}
                   disabled={syncingSheets}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-50"
+                  title="Append row to Google Spreadsheet"
                 >
                   {syncingSheets ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
@@ -849,12 +876,15 @@ export default function TicketChatBubble({
                   <span>{syncingSheets ? "Syncing..." : "Sync to Sheet"}</span>
                 </button>
               ) : null}
+            </div>
 
+            {/* Right side: Edit, Preview, Export dropdown & Primary Copy */}
+            <div className="flex items-center gap-1.5">
               {!readOnly && onUpdateTicket && (
                 <button
                   type="button"
                   onClick={startEditing}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
                   title="Edit ticket fields"
                 >
                   <Pencil className="w-3.5 h-3.5" />
@@ -865,51 +895,135 @@ export default function TicketChatBubble({
               <button
                 type="button"
                 onClick={() => setShowPreviewModal(true)}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Preview side-by-side Jira issue format"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                title="Preview Jira issue format"
               >
                 <Eye className="w-3.5 h-3.5" />
                 <span>Preview</span>
               </button>
-            </div>
 
-            <div className="flex items-center gap-1.5">
+              {/* Simplified Export Dropdown with Badges & Hover Popover */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                  title="Export ticket to various formats (PDF, Markdown, CSV, JSON)"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export</span>
+                  <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? "rotate-180" : ""}`} />
+                </button>
+
+                {showExportMenu && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => {
+                        setShowExportMenu(false);
+                        setHoveredExport(null);
+                      }}
+                    />
+                    <div className="absolute right-0 bottom-full mb-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 py-1 text-xs animate-in fade-in zoom-in-95 duration-150">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handlePrintPdf();
+                        }}
+                        onMouseEnter={() => setHoveredExport("pdf")}
+                        onMouseLeave={() => setHoveredExport(null)}
+                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Printer className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Print to PDF</span>
+                        </div>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-600">PDF</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadMd();
+                        }}
+                        onMouseEnter={() => setHoveredExport("md")}
+                        onMouseLeave={() => setHoveredExport(null)}
+                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>Markdown (.md)</span>
+                        </div>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-600">MD</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadCsv();
+                        }}
+                        onMouseEnter={() => setHoveredExport("csv")}
+                        onMouseLeave={() => setHoveredExport(null)}
+                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition relative"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Spreadsheet (.csv)</span>
+                        </div>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-600">CSV</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowExportMenu(false);
+                          handleDownloadJson();
+                        }}
+                        onMouseEnter={() => setHoveredExport("json")}
+                        onMouseLeave={() => setHoveredExport(null)}
+                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition border-t border-slate-100 dark:border-slate-700"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-3.5 text-center font-mono font-bold text-[10px] text-amber-500">{`{}`}</span>
+                          <span>JSON Object (.json)</span>
+                        </div>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-600">JSON</span>
+                      </button>
+
+                      {/* Hover Preview Popover for CSV/JSON (Feature 9) */}
+                      {hoveredExport && (
+                        <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-[10px] text-slate-500">
+                          {hoveredExport === "csv" && <span>Preview: 11 spreadsheet columns (Title, Expected, Evidence, Jira Key...)</span>}
+                          {hoveredExport === "json" && <span>Preview: Standardized JSON payload with full ticket schema</span>}
+                          {hoveredExport === "md" && <span>Preview: Formatted markdown ready for GitHub / Notion</span>}
+                          {hoveredExport === "pdf" && <span>Preview: Print-ready styled QA ticket sheet</span>}
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {/* Share Read-only Link Button (Feature 7) */}
               <button
                 type="button"
-                onClick={handlePrintPdf}
-                className="p-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Print ticket / Save as PDF"
+                onClick={handleShareTicket}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                title="Share or copy direct ticket link"
               >
-                <Printer className="w-3.5 h-3.5" />
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Share</span>
               </button>
-              <button
-                type="button"
-                onClick={handleDownloadMd}
-                className="p-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Download as Markdown (.md)"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadJson}
-                className="px-2 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Download as JSON (.json)"
-              >
-                <span>JSON</span>
-              </button>
-              <button
-                type="button"
-                onClick={handleDownloadCsv}
-                className="px-2 py-1.5 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Download as CSV spreadsheet (.csv)"
-              >
-                <span>CSV</span>
-              </button>
+
+              {/* Primary Action: Copy Ticket */}
               <button
                 type="button"
                 onClick={copyToClipboard}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-xs"
+                title="Copy markdown formatted ticket to clipboard"
               >
                 {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                 <span>{copiedAll ? "Copied" : "Copy Ticket"}</span>
