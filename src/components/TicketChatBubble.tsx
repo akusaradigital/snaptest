@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Video, Image as ImageIcon, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
@@ -59,7 +59,6 @@ export default function TicketChatBubble({
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [showUnassignedWarningModal, setShowUnassignedWarningModal] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [hoveredExport, setHoveredExport] = useState<string | null>(null);
   const [isCompactView, setIsCompactView] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
@@ -282,20 +281,6 @@ export default function TicketChatBubble({
   );
 
   const isPushed = Boolean(ticket?.jira_key || ticket?.aksora_pushed);
-
-  const getEvidenceType = (url?: string) => {
-    if (!url) return null;
-    const lower = url.toLowerCase();
-    if (lower.match(/\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/) || lower.includes("image")) {
-      return { label: "Image", icon: <ImageIcon className="w-3 h-3 text-sky-500" /> };
-    }
-    if (lower.match(/\.(mp4|webm|mov|mkv)(\?.*)?$/) || lower.includes("loom.com") || lower.includes("drive.google.com") || lower.includes("/v/")) {
-      return { label: "Video / Screen Recording", icon: <Video className="w-3 h-3 text-rose-500" /> };
-    }
-    return { label: "Link", icon: <ExternalLink className="w-3 h-3 text-indigo-500" /> };
-  };
-
-  const evidenceInfo = getEvidenceType(ticket?.evidence);
 
   // Auto-detect similar past tickets from other chat sessions (Feature 9)
   const similarTicket = (() => {
@@ -725,16 +710,9 @@ export default function TicketChatBubble({
               <p className="font-bold mb-1.5">Evidence:</p>
               <div className="space-y-1.5">
                 {parseEvidenceUrls(ticket.evidence).map((url: string, idx: number) => {
-                  const info = getEvidenceType(url);
                   const isLink = /^https?:\/\//i.test(url);
                   return (
-                    <div key={idx} className="flex items-center gap-2 flex-wrap">
-                      {info && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-[10px] font-normal text-slate-600 dark:text-slate-300">
-                          {info.icon}
-                          <span>{info.label}</span>
-                        </span>
-                      )}
+                    <div key={idx} className="flex items-center gap-1.5 flex-wrap">
                       {isLink ? (
                         <a
                           href={url}
@@ -919,21 +897,16 @@ export default function TicketChatBubble({
                   <>
                     <div
                       className="fixed inset-0 z-40"
-                      onClick={() => {
-                        setShowExportMenu(false);
-                        setHoveredExport(null);
-                      }}
+                      onClick={() => setShowExportMenu(false)}
                     />
-                    <div className="absolute right-0 bottom-full mb-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 py-1 text-xs animate-in fade-in zoom-in-95 duration-150">
+                    <div className="absolute right-0 bottom-full mb-1.5 w-48 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 py-1 text-xs animate-in fade-in zoom-in-95 duration-150">
                       <button
                         type="button"
                         onClick={() => {
                           setShowExportMenu(false);
                           handlePrintPdf();
                         }}
-                        onMouseEnter={() => setHoveredExport("pdf")}
-                        onMouseLeave={() => setHoveredExport(null)}
-                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
                       >
                         <div className="flex items-center gap-2">
                           <Printer className="w-3.5 h-3.5 text-rose-500" />
@@ -948,9 +921,7 @@ export default function TicketChatBubble({
                           setShowExportMenu(false);
                           handleDownloadMd();
                         }}
-                        onMouseEnter={() => setHoveredExport("md")}
-                        onMouseLeave={() => setHoveredExport(null)}
-                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
                       >
                         <div className="flex items-center gap-2">
                           <FileText className="w-3.5 h-3.5 text-indigo-500" />
@@ -965,9 +936,7 @@ export default function TicketChatBubble({
                           setShowExportMenu(false);
                           handleDownloadCsv();
                         }}
-                        onMouseEnter={() => setHoveredExport("csv")}
-                        onMouseLeave={() => setHoveredExport(null)}
-                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition relative"
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
                       >
                         <div className="flex items-center gap-2">
                           <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
@@ -982,9 +951,7 @@ export default function TicketChatBubble({
                           setShowExportMenu(false);
                           handleDownloadJson();
                         }}
-                        onMouseEnter={() => setHoveredExport("json")}
-                        onMouseLeave={() => setHoveredExport(null)}
-                        className="w-full px-3 py-1.5 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition border-t border-slate-100 dark:border-slate-700"
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition border-t border-slate-100 dark:border-slate-700"
                       >
                         <div className="flex items-center gap-2">
                           <span className="w-3.5 text-center font-mono font-bold text-[10px] text-amber-500">{`{}`}</span>
@@ -992,16 +959,6 @@ export default function TicketChatBubble({
                         </div>
                         <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-600">JSON</span>
                       </button>
-
-                      {/* Hover Preview Popover for CSV/JSON (Feature 9) */}
-                      {hoveredExport && (
-                        <div className="p-2 border-t border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-[10px] text-slate-500">
-                          {hoveredExport === "csv" && <span>Preview: 11 spreadsheet columns (Title, Expected, Evidence, Jira Key...)</span>}
-                          {hoveredExport === "json" && <span>Preview: Standardized JSON payload with full ticket schema</span>}
-                          {hoveredExport === "md" && <span>Preview: Formatted markdown ready for GitHub / Notion</span>}
-                          {hoveredExport === "pdf" && <span>Preview: Print-ready styled QA ticket sheet</span>}
-                        </div>
-                      )}
                     </div>
                   </>
                 )}
