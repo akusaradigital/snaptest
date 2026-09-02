@@ -5,7 +5,8 @@ import { GenerateResponse } from "@/types";
 import TestCaseTable from "./TestCaseTable";
 import ScriptViewer from "./ScriptViewer";
 import DownloadButtons from "./DownloadButtons";
-import { CheckCircle2, Table2, FileCode2, RotateCcw, Share2, Check } from "lucide-react";
+import CompatibilityMatrix from "./CompatibilityMatrix";
+import { CheckCircle2, Table2, FileCode2, RotateCcw, Share2, Check, LayoutGrid } from "lucide-react";
 
 interface ResultsDisplayProps {
   results: GenerateResponse;
@@ -13,7 +14,7 @@ interface ResultsDisplayProps {
 }
 
 export default function ResultsDisplay({ results, onGenerateAnother }: ResultsDisplayProps) {
-  const [activeTab, setActiveTab] = useState<"table" | "scripts">("table");
+  const [activeTab, setActiveTab] = useState<"table" | "scripts" | "matrix">("table");
   const [shared, setShared] = useState(false);
   const [sharing, setSharing] = useState(false);
   // ponytail: older history rows / partial payloads may omit scripts
@@ -105,6 +106,19 @@ export default function ResultsDisplay({ results, onGenerateAnother }: ResultsDi
               {scripts.length}
             </span>
           </button>
+          {results.history_id && (
+            <button
+              onClick={() => setActiveTab("matrix")}
+              className={`flex items-center gap-2 px-4 pb-3 border-b-2 text-sm font-medium transition-all ${
+                activeTab === "matrix"
+                  ? "border-indigo-600 text-indigo-700"
+                  : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+              }`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+              OS & Browser Matrix
+            </button>
+          )}
         </nav>
       </div>
 
@@ -118,6 +132,9 @@ export default function ResultsDisplay({ results, onGenerateAnother }: ResultsDi
       )}
       {activeTab === "scripts" && (
         <ScriptViewer scripts={scripts} />
+      )}
+      {activeTab === "matrix" && results.history_id && (
+        <CompatibilityMatrix historyId={results.history_id} />
       )}
 
       {/* ponytail: prominent CTA button at the bottom of results to generate another */}

@@ -22,6 +22,9 @@ import {
   Database,
   BookOpen,
   LayoutGrid,
+  Camera,
+  Kanban,
+  ExternalLink,
 } from "lucide-react";
 
 function GoogleIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -371,6 +374,91 @@ export default function Landing() {
               </ul>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Akusara Suite / Ecosystem */}
+      <section className="mx-auto max-w-7xl scroll-mt-20 px-5 py-16 sm:px-8">
+        <div className="mx-auto mb-12 max-w-2xl text-center">
+          <span className="inline-block rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-indigo-700 mb-3">
+            Akusara Suite
+          </span>
+          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">Part of the Akusara QA &amp; Dev Ecosystem</h2>
+          <p className="mt-4 text-slate-500">
+            SnapTest connects directly with our bug-capture and project tracking tools to create a closed QA loop.
+          </p>
+        </div>
+        <div className="grid gap-6 md:grid-cols-3">
+          {/* SnapTest Card (This App) */}
+          <div className="relative flex flex-col justify-between rounded-2xl border-2 border-indigo-500 bg-indigo-50/30 p-6 shadow-sm">
+            <div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-md shadow-indigo-500/20 mb-4">
+                <Layers className="h-5 w-5" />
+              </div>
+              <div className="flex items-center gap-2 mb-2">
+                <h3 className="text-base font-bold text-slate-900">SnapTest AI</h3>
+                <span className="rounded bg-indigo-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-indigo-700">
+                  This App
+                </span>
+              </div>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Autonomous AI QA agent that runs test suites and writes regression scripts from natural language.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t border-indigo-100 text-xs font-semibold text-indigo-600">
+              AI Test Generation &amp; Automation
+            </div>
+          </div>
+
+          {/* BugSnap Card */}
+          <div className="relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5">
+            <div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 mb-4">
+                <Camera className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 mb-2">BugSnap</h3>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Capture screen recordings and console errors straight to your own Google Drive. Push captures to SnapTest with one click.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              {/* ponytail: external link defaults to # if env var is unset */}
+              <a
+                href={process.env.NEXT_PUBLIC_BUGSNAP_URL || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+              >
+                <span>Open App →</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
+
+          {/* Aksora Card */}
+          <div className="relative flex flex-col justify-between rounded-2xl border border-slate-200 bg-white p-6 shadow-sm transition hover:border-indigo-300 hover:shadow-lg hover:shadow-indigo-500/5">
+            <div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 text-blue-600 mb-4">
+                <Kanban className="h-5 w-5" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900 mb-2">Aksora</h3>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Central workspace for test management, sprint planning, and defect triage. Push generated tickets directly into sprints.
+              </p>
+            </div>
+            <div className="mt-6 pt-4 border-t border-slate-100">
+              {/* ponytail: external link defaults to # if env var is unset */}
+              <a
+                href={process.env.NEXT_PUBLIC_AKSORA_URL || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700"
+              >
+                <span>Open App →</span>
+                <ExternalLink className="h-3.5 w-3.5" />
+              </a>
+            </div>
+          </div>
         </div>
       </section>
 

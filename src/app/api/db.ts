@@ -142,6 +142,35 @@ export async function ensureSchema() {
   await db`CREATE INDEX IF NOT EXISTS idx_agent_sessions_user_agent ON agent_sessions(user_id, agent_type)`;
   await db`CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at DESC)`;
 
+  // Public Inbound API Keys
+  await db`CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    key_hash TEXT NOT NULL UNIQUE,
+    key_prefix TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at TEXT
+  )`;
+  await db`CREATE INDEX IF NOT EXISTS idx_api_keys_user_id ON api_keys(user_id)`;
+  await db`CREATE INDEX IF NOT EXISTS idx_api_keys_key_hash ON api_keys(key_hash)`;
+
+  // Compatibility matrix test runs & CI execution
+  await db`CREATE TABLE IF NOT EXISTS test_runs (
+    id TEXT PRIMARY KEY,
+    history_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    browser TEXT NOT NULL,
+    os TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'untested',
+    notes TEXT DEFAULT '',
+    tester_email TEXT DEFAULT '',
+    ran_at TEXT NOT NULL
+  )`;
+  await db`CREATE INDEX IF NOT EXISTS idx_test_runs_history ON test_runs(history_id)`;
+  await db`CREATE INDEX IF NOT EXISTS idx_test_runs_user ON test_runs(user_id)`;
+
   // Fire-and-forget: Auto Garbage Collection
   // We do it asynchronously without awaiting so it doesn't block the request.
   db`DELETE FROM crawl_cache WHERE created_at::timestamp < NOW() - INTERVAL '48 hours'`.catch(console.error);

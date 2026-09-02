@@ -1,5 +1,5 @@
 const PUBLIC_EXACT = new Set(["/", "/login", "/api/health", "/privacy", "/terms"]);
-const PUBLIC_PREFIXES = ["/share/", "/api/auth/", "/api/share/", "/_next/"];
+const PUBLIC_PREFIXES = ["/share/", "/api/auth/", "/api/share/", "/_next/", "/api/public/"];
 const STATIC_ASSET = /\.[a-zA-Z0-9]+$/;
 
 export function isPublicRoute(pathname) {

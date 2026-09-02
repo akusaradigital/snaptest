@@ -17,6 +17,9 @@ import {
   Globe2,
   BookOpen,
   PieChart,
+  Camera,
+  Kanban,
+  ExternalLink,
 } from "lucide-react";
 
 export type PageId = "dashboard" | "generate" | "ticket" | "settings" | "data" | "api-agent" | "planner" | "report";
@@ -134,6 +137,38 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
               </button>
             );
           })}
+
+          {/* Sister Apps Drawer Block */}
+          {/* ponytail: external links default to # if env vars are unset */}
+          <div className="pt-3 mt-2 border-t border-slate-100 space-y-1">
+            <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+              Sister Apps
+            </p>
+            <a
+              href={process.env.NEXT_PUBLIC_BUGSNAP_URL || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+            >
+              <span className="flex items-center gap-2.5">
+                <Camera className="w-4 h-4 text-indigo-600" />
+                <span>BugSnap (Capture)</span>
+              </span>
+              <ExternalLink className="w-3 h-3 text-slate-400" />
+            </a>
+            <a
+              href={process.env.NEXT_PUBLIC_AKSORA_URL || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition"
+            >
+              <span className="flex items-center gap-2.5">
+                <Kanban className="w-4 h-4 text-blue-600" />
+                <span>Aksora (Projects)</span>
+              </span>
+              <ExternalLink className="w-3 h-3 text-slate-400" />
+            </a>
+          </div>
         </nav>
       </aside>
 
@@ -157,7 +192,7 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
         </Link>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
             const isActive = activePage === item.id;
             return (
@@ -182,6 +217,42 @@ export default function Sidebar({ activePage, onNavigate }: SidebarProps) {
               </button>
             );
           })}
+
+          {/* Sister Apps Desktop Block */}
+          {/* ponytail: external links default to # if env vars are unset */}
+          <div className="pt-3 mt-2 border-t border-slate-100 space-y-1">
+            {!collapsed && (
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                Sister Apps
+              </p>
+            )}
+            <a
+              href={process.env.NEXT_PUBLIC_BUGSNAP_URL || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={collapsed ? "BugSnap (Capture)" : undefined}
+              className={`w-full flex items-center ${collapsed ? "justify-center px-0" : "justify-between px-3"} py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition`}
+            >
+              <span className="flex items-center gap-2.5">
+                <Camera className="w-4 h-4 text-indigo-600 flex-shrink-0" />
+                {!collapsed && <span className="truncate">BugSnap</span>}
+              </span>
+              {!collapsed && <ExternalLink className="w-3 h-3 text-slate-400" />}
+            </a>
+            <a
+              href={process.env.NEXT_PUBLIC_AKSORA_URL || "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+              title={collapsed ? "Aksora (Projects)" : undefined}
+              className={`w-full flex items-center ${collapsed ? "justify-center px-0" : "justify-between px-3"} py-2 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition`}
+            >
+              <span className="flex items-center gap-2.5">
+                <Kanban className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                {!collapsed && <span className="truncate">Aksora</span>}
+              </span>
+              {!collapsed && <ExternalLink className="w-3 h-3 text-slate-400" />}
+            </a>
+          </div>
         </nav>
 
         {/* Collapse Toggle */}

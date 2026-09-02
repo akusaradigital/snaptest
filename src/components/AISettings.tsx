@@ -276,7 +276,9 @@ export default function AISettings({
       }
 
       const tokensInfo = validateRes.data.tokens !== undefined ? ` (tokens: ${validateRes.data.tokens})` : '';
-      toast.success(`${PROVIDER_INFO[provider]?.label} connected successfully${tokensInfo}`);
+      toast.success(`${PROVIDER_INFO[provider]?.label} connected successfully${tokensInfo}`, {
+        id: `connect-${provider}`,
+      });
 
       setProviders((prev) => ({
         ...prev,
@@ -455,7 +457,9 @@ export default function AISettings({
           onProviderChange(provider, nextModel);
         }
         const tokensInfo = res.data.tokens !== undefined ? ` (tokens: ${res.data.tokens})` : '';
-        toast.success(`${PROVIDER_INFO[provider]?.label} connected successfully${targetModel && provider !== '9router-public' ? ` (model: ${targetModel})` : ''}${tokensInfo}!`);
+        toast.success(`${PROVIDER_INFO[provider]?.label} connected successfully${targetModel && provider !== '9router-public' ? ` (model: ${targetModel})` : ''}${tokensInfo}!`, {
+          id: `connect-${provider}`,
+        });
         setProviders((prev) => ({
           ...prev,
           [provider]: {
@@ -472,7 +476,9 @@ export default function AISettings({
           }));
         }
       } else {
-        toast.error(res.data.message || `Could not connect to ${PROVIDER_INFO[provider]?.label}`);
+        toast.error(res.data.message || `Could not connect to ${PROVIDER_INFO[provider]?.label}`, {
+          id: `error-${provider}`,
+        });
         setProviders((prev) => ({
           ...prev,
           [provider]: {
@@ -484,7 +490,9 @@ export default function AISettings({
       }
     } catch (err: any) {
       toast.dismiss(checkingToast);
-      toast.error(err.response?.data?.detail || `Failed to ping ${PROVIDER_INFO[provider]?.label}`);
+      toast.error(err.response?.data?.detail || `Failed to ping ${PROVIDER_INFO[provider]?.label}`, {
+        id: `error-${provider}`,
+      });
       setProviders((prev) => ({
         ...prev,
         [provider]: {

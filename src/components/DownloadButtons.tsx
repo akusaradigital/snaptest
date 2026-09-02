@@ -66,6 +66,36 @@ export default function DownloadButtons({ results }: DownloadButtonsProps) {
     setShowMenu(false);
   };
 
+  const downloadPostman = () => {
+    const cases = results.test_cases || [];
+    const collection = {
+      info: {
+        name: "SnapTest QA Test Cases",
+        schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+        description: "Exported test suite from SnapTest",
+      },
+      item: cases.map((tc, i) => ({
+        name: `[${tc.priority || "P2"}] ${tc.name || `Case ${i + 1}`}`,
+        request: {
+          method: "GET",
+          header: [],
+          url: {
+            raw: "https://example.com/api/test",
+            protocol: "https",
+            host: ["example", "com"],
+            path: ["api", "test"],
+          },
+          description: `**Type:** ${tc.type || "Functional"}\n**Preconditions:** ${tc.pre_condition || "None"}\n\n**Steps:**\n${(tc.test_steps || []).map((s, idx) => `${idx + 1}. ${s}`).join("\n")}\n\n**Expected Result:**\n${tc.expected_result || ""}`,
+        },
+      })),
+    };
+
+    const blob = new Blob([JSON.stringify(collection, null, 2)], { type: "application/json" });
+    saveAs(blob, "snaptest-cases.postman_collection.json");
+    toast.success("Test cases exported as Postman Collection");
+    setShowMenu(false);
+  };
+
   // ponytail: Dynamically detect the framework type of generated scripts
   const getFrameworkType = (): string => {
     if (!results.scripts || results.scripts.length === 0) return "playwright";
@@ -134,14 +164,24 @@ export default function DownloadButtons({ results }: DownloadButtonsProps) {
                   Test Cases (Standard CSV)
                 </button>
                 {results.test_cases && results.test_cases.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={downloadTestRail}
-                    className="w-full text-left px-3 py-2 text-xs text-indigo-700 font-medium hover:bg-indigo-50 transition flex items-center gap-2"
-                  >
-                    <span className="w-8 text-right font-mono text-indigo-500">.csv</span>
-                    TestRail CSV Format
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={downloadTestRail}
+                      className="w-full text-left px-3 py-2 text-xs text-indigo-700 font-medium hover:bg-indigo-50 transition flex items-center gap-2"
+                    >
+                      <span className="w-8 text-right font-mono text-indigo-500">.csv</span>
+                      TestRail CSV Format
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadPostman}
+                      className="w-full text-left px-3 py-2 text-xs text-orange-700 font-medium hover:bg-orange-50 transition flex items-center gap-2"
+                    >
+                      <span className="w-8 text-right font-mono text-orange-500">.json</span>
+                      Postman Collection
+                    </button>
+                  </>
                 )}
               </>
             )}

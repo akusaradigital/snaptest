@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import AISettings from "@/components/AISettings";
 import TeamSettings from "@/components/TeamSettings";
+import ApiKeysSettings from "@/components/ApiKeysSettings";
 import {
   FileText,
   Users,
@@ -16,6 +17,7 @@ import {
   Search,
   Sliders,
   Sparkles,
+  Key,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -29,7 +31,7 @@ interface SettingsPageProps {
   refreshModels: () => Promise<void>;
 }
 
-type SettingSection = "ai" | "generation" | "workspace" | "integrations";
+type SettingSection = "ai" | "generation" | "workspace" | "integrations" | "api";
 type IntegrationId = "jira" | "aksora" | "sheets";
 
 const SECTIONS: { id: SettingSection; label: string; description: string }[] = [
@@ -37,6 +39,7 @@ const SECTIONS: { id: SettingSection; label: string; description: string }[] = [
   { id: "generation", label: "Generation", description: "Tune the prompt SnapTest uses when generating test cases." },
   { id: "workspace", label: "Workspace", description: "Share test history with members of your team." },
   { id: "integrations", label: "Integrations", description: "Connect issue trackers and backlog tools to push AI-generated tickets." },
+  { id: "api", label: "API Keys", description: "Let BugSnap and external tools push tickets directly into your SnapTest workspace." },
 ];
 
 export default function SettingsPage({
@@ -547,6 +550,12 @@ export default function SettingsPage({
               <div className="mt-4">
                 <TeamSettings />
               </div>
+            </section>
+          )}
+
+          {activeSection === "api" && (
+            <section className="max-w-3xl">
+              <ApiKeysSettings />
             </section>
           )}
 
