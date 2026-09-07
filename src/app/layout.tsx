@@ -21,6 +21,11 @@ export const metadata: Metadata = {
   title: "SnapTest - Code Less. Test More",
   description: "Code Less. Test More. Powered by AI.",
   icons: { icon: "/favicon.svg" },
+  manifest: "/manifest.json",
+};
+
+export const viewport = {
+  themeColor: "#4f46e5",
 };
 
 export default function RootLayout({

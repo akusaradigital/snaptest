@@ -30,8 +30,11 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const { suiteId, browser = "headless", os = "ci", results = [], notes = "" } = body;
 
-    if (!suiteId) {
-      return NextResponse.json({ error: "Field suiteId is required" }, { status: 400 });
+    if (!suiteId || typeof suiteId !== "string") {
+      return NextResponse.json({ error: "Field suiteId is required and must be a string" }, { status: 400 });
+    }
+    if (!Array.isArray(results)) {
+      return NextResponse.json({ error: "Field results must be an array" }, { status: 400 });
     }
 
     await ensureSchema();

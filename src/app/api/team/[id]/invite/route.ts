@@ -8,8 +8,13 @@ export async function POST(request: Request, { params }: { params: { id: string 
     const userId = session?.user?.email;
     if (!userId) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
 
-    const { email } = await request.json();
-    if (!email?.trim()) return NextResponse.json({ detail: 'Email required' }, { status: 400 });
+    const { email } = await request.json().catch(() => ({}));
+    if (typeof email !== 'string' || !email.trim()) {
+      return NextResponse.json({ detail: 'Email required' }, { status: 400 });
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return NextResponse.json({ detail: 'Invalid email format' }, { status: 400 });
+    }
 
     const sql = getDB();
     // only owner can invite

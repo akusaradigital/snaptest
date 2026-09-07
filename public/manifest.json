@@ -1,0 +1,13 @@
+{
+  "name": "SnapTest - Code Less. Test More",
+  "short_name": "SnapTest",
+  "description": "Code Less. Test More. Powered by AI.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4f46e5",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
