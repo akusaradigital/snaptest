@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { validatedAxiosRequest } from '@/lib/outbound-url';
+import { findSimilarTicket } from '@/lib/duplicateCheck';
 
 // Safely format text to Atlassian Document Format (ADF) paragraph node
 function textToAdfParagraph(text: string) {
@@ -142,7 +143,8 @@ function buildJiraDescriptionADF(payload: Record<string, any>) {
 
 export async function POST(request: Request) {
   try {
-    if (!(await auth())?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
+    const userId = (await auth())?.user?.email;
+    if (!userId) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     const {
       auth_type,
       access_token,
@@ -162,6 +164,13 @@ export async function POST(request: Request) {
     if (!title) {
       return NextResponse.json({ detail: 'Title is required to create a Jira issue' }, { status: 400 });
     }
+
+    const similar = await findSimilarTicket(userId, {
+      title,
+      description: rest.description,
+      stepsToReproduce: rest.steps_to_reproduce,
+      currentBehavior: rest.current_behavior,
+    });
 
     const isOAuth = auth_type === 'oauth2' && !!access_token;
     if (!isOAuth && (!jira_domain || !jira_email || !jira_token)) {
@@ -305,6 +314,7 @@ export async function POST(request: Request) {
       issue_key: issueKey,
       issue_url: issueUrl,
       linked_issue_key: linkedIssueKey,
+      ...(similar ? { warning: `Possible duplicate of an existing ticket: "${similar.title}"${similar.jiraKey ? ` (${similar.jiraKey})` : ''}` } : {}),
     });
   } catch (err) {
     console.error('Jira create failed:', err);

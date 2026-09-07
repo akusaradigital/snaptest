@@ -517,6 +517,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       } else {
         toast.success(`Created Jira issue ${data.issue_key}!`);
       }
+      if (data.warning) toast(data.warning, { icon: "⚠️" });
 
       // Opsi 3: Simpan jira_key & jira_url ke ticket_result pesan yang dipush
       if (activeSessionId) {
@@ -576,6 +577,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       if (!res.ok) throw new Error(data.detail || "Failed to create Aksora record");
 
       toast.success(data.message || "Pushed to Aksora!");
+      if (data.warning) toast(data.warning, { icon: "⚠️" });
 
       if (activeSessionId) {
         const nextSessions = sessions.map(s => {

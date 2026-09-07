@@ -681,6 +681,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       const response = await fetch("/api/jira/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...a.jiraDraft, jira_domain: config.domain, jira_email: config.email, jira_token: config.token, jira_project_key: config.project_key }) });
       const data = await response.json(); if (!response.ok) { toast.error(data.detail || "Jira creation failed"); return; }
       updateArtifacts({ jiraIssue: { key: data.issue_key, url: data.issue_url } });
+      if (data.warning) toast(data.warning, { icon: "⚠️" });
     } else if (confirmation === "aksora" && a?.jiraDraft) {
       const config = JSON.parse(localStorage.getItem("aksora_config") || "{}");
       if (!config.apiKey || !config.url) { toast.error("Configure Aksora integration in Settings first."); setConfirmation(null); return; }
@@ -700,6 +701,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       const data = await response.json(); if (!response.ok) { toast.error(data.detail || "Aksora push failed"); return; }
       updateArtifacts({ aksoraPushed: { message: data.message || "Pushed to Aksora!", url: data.url } });
       toast.success(data.message || "Pushed to Aksora!");
+      if (data.warning) toast(data.warning, { icon: "⚠️" });
     }
     setConfirmation(null);
   };

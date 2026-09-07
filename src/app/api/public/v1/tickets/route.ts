@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { resolveApiKey } from '@/lib/apiKeys';
 import { ensureSchema, getDB } from '@/app/api/db';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { findSimilarTicket } from '@/lib/duplicateCheck';
 
 export const runtime = 'nodejs';
 
@@ -38,6 +39,11 @@ export async function POST(request: Request) {
     if (!title || typeof title !== 'string' || !title.trim()) {
       return NextResponse.json({ error: 'Field "title" is required' }, { status: 400 });
     }
+
+    const similar = await findSimilarTicket(resolved.userId, {
+      title: title.trim(),
+      description: description ? String(description).trim() : undefined,
+    });
 
     await ensureSchema();
     const db = getDB();
@@ -82,6 +88,7 @@ export async function POST(request: Request) {
           ticket: ticketResult,
           createdAt: now,
         },
+        ...(similar ? { warning: `Possible duplicate of an existing ticket: "${similar.title}"` } : {}),
       },
       { status: 201 }
     );

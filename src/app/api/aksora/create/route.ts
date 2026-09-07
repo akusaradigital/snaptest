@@ -1,10 +1,12 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { validatedAxiosRequest } from '@/lib/outbound-url';
+import { findSimilarTicket } from '@/lib/duplicateCheck';
 
 export async function POST(request: Request) {
   try {
-    if (!(await auth())?.user?.email) {
+    const userId = (await auth())?.user?.email;
+    if (!userId) {
       return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     }
 
@@ -20,6 +22,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ detail: 'Aksora Base URL is required. Go to Settings.' }, { status: 400 });
     }
     try { new URL(aksora_url); } catch { return NextResponse.json({ detail: 'Invalid Aksora Base URL format' }, { status: 400 }); }
+
+    const similar = await findSimilarTicket(userId, {
+      title,
+      description: rest.description,
+      stepsToReproduce: rest.steps_to_reproduce,
+      currentBehavior: rest.current_behavior,
+    });
 
     const baseUrl = aksora_url.replace(/\/$/, '');
     
@@ -88,6 +97,7 @@ export async function POST(request: Request) {
       message: `${moduleType === 'tasks' ? 'Task' : 'Bug'} successfully pushed to Aksora.`,
       ...(createdId ? { id: createdId } : {}),
       ...(createdUrl ? { url: createdUrl } : {}),
+      ...(similar ? { warning: `Possible duplicate of an existing ticket: "${similar.title}"` } : {}),
     });
   } catch (err: any) {
     console.error('Aksora create failed:', err);
