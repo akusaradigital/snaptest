@@ -4,7 +4,6 @@ import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, Externa
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect } from "react";
 import toast from "react-hot-toast";
-import { BugSnapPreviewCard } from "./BugSnapPreviewCard";
 
 const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 
@@ -786,28 +785,23 @@ export default function TicketChatBubble({
           {ticket.evidence && !isPlaceholderEvidence(ticket.evidence) && (
             <div>
               <p className="font-bold mb-1.5">Evidence:</p>
-              <div className="space-y-1.5">
+              <div className="space-y-1">
                 {parseEvidenceUrls(ticket.evidence).map((url: string, idx: number) => {
                   const isLink = /^https?:\/\//i.test(url);
-                  const isBugSnap = isLink && /bugsnap[^\s]*\/v\/[a-zA-Z0-9_-]+/i.test(url);
                   return (
-                    <div key={idx} className="space-y-1">
-                      {isBugSnap ? (
-                        <BugSnapPreviewCard url={url} />
-                      ) : isLink ? (
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <a
-                            href={url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs flex items-center gap-1 hover:text-indigo-800 dark:hover:text-indigo-300"
-                          >
-                            <span>{url}</span>
-                            <ExternalLink className="w-3 h-3 inline-block shrink-0" />
-                          </a>
-                        </div>
+                    <div key={idx} className="flex items-center gap-1.5 flex-wrap">
+                      {isLink ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs inline-flex items-center gap-1 hover:text-indigo-800 dark:hover:text-indigo-300"
+                        >
+                          <span>{url}</span>
+                          <ExternalLink className="w-3 h-3 inline-block shrink-0" />
+                        </a>
                       ) : (
-                        <span className="text-xs text-slate-700 dark:text-slate-200">{url}</span>
+                        <span className="text-xs text-slate-700 dark:text-slate-200 break-all">{url}</span>
                       )}
                     </div>
                   );
