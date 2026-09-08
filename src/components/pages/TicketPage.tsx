@@ -172,23 +172,52 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.items) && data.items.length > 0) {
-            // Map light server summary items to session stubs
-            const serverSessions: ChatSession[] = data.items.map((item: any) => ({
-              id: item.id,
-              title: item.title || "Untitled Chat",
-              updatedAt: new Date(item.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-              messages: [],
-            }));
-            setSessions(serverSessions);
+            // Build map of existing local sessions to preserve messages and prevent blank screen
+            const localMap = new Map<string, ChatSession>();
+            try {
+              const saved = localStorage.getItem(TICKET_SESSIONS_STORAGE);
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                  parsed.forEach((s: any) => {
+                    if (s?.id) localMap.set(s.id, s);
+                  });
+                }
+              }
+            } catch {}
+
+            // Map server summary items, keeping local messages intact so refresh never blanks out
+            const serverSessions: ChatSession[] = data.items.map((item: any) => {
+              const local = localMap.get(item.id);
+              return {
+                id: item.id,
+                title: item.title || local?.title || "Untitled Chat",
+                updatedAt: new Date(item.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+                messages: local?.messages && local.messages.length > 0 ? local.messages : [],
+              };
+            });
+
+            // Retain any local-only sessions not yet pushed to server
+            const serverIdSet = new Set(data.items.map((i: any) => i.id));
+            const localOnlySessions: ChatSession[] = [];
+            localMap.forEach((local, id) => {
+              if (!serverIdSet.has(id)) {
+                localOnlySessions.push(local);
+              }
+            });
+
+            const merged = [...serverSessions, ...localOnlySessions];
+            setSessions(merged);
 
             // Read URL hash for session ID jump
             const hashSessionId = window.location.hash.replace("#", "");
-            const targetId = hashSessionId && serverSessions.find(s => s.id === hashSessionId) 
-              ? hashSessionId 
-              : serverSessions[0].id;
-            
+            const targetId = hashSessionId && merged.find((s) => s.id === hashSessionId)
+              ? hashSessionId
+              : merged[0].id;
+
             setActiveSessionId(targetId);
-            // Fetch full message details for the selected session
+
+            // Fetch latest messages from server in background to sync
             loadFullSession(targetId);
             return;
           }
@@ -224,12 +253,22 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
         const data = await res.json();
         // data directly returns the record object, not data.session
         if (data && data.id) {
-          setSessions(prev => prev.map(s => s.id === id ? {
-            id: data.id,
-            title: data.title,
-            updatedAt: new Date(data.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
-            messages: data.messages || [],
-          } : s));
+          setSessions((prev) => {
+            const next = prev.map((s) => {
+              if (s.id !== id) return s;
+              const serverMsgs = Array.isArray(data.messages) && data.messages.length > 0 ? data.messages : s.messages;
+              return {
+                id: data.id,
+                title: data.title || s.title,
+                updatedAt: new Date(data.updated_at).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+                messages: serverMsgs,
+              };
+            });
+            try {
+              localStorage.setItem(TICKET_SESSIONS_STORAGE, JSON.stringify(next));
+            } catch {}
+            return next;
+          });
         }
       }
     } catch (err) {
