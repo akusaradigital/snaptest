@@ -137,7 +137,7 @@ STRICT CONTEXT RULES:
 - LANGUAGE: Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation, even in later turns and even if the user then switches back to a different language for a message — their explicit instruction always overrides the default of matching the latest message.
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
-- If any message contains a URL, put that EXACT URL under "evidence".
+- If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
 ${custom_rules ? `\nUSER CUSTOM TICKET RULES & GUIDELINES:\n${custom_rules}\n` : ''}
 
 OUTPUT FORMAT:
@@ -154,7 +154,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
   "expected_result": "Expected result text without ** stars",
   "actual_result": "Actual result text without ** stars",
   "acceptance_criteria": ["Criteria 1", "Criteria 2"],
-  "evidence": "Exact URL from input or placeholder"
+  "evidence": "Exact URL from user input if provided, or null"
 }`;
 
 
@@ -211,9 +211,41 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
 
     const isPlaceholder = (str: string) => str.includes('[Module') || str.includes('[Feature Name]') || str.includes('TBD') || str.includes('to be determined');
 
+    const extractUrls = (text: string): string[] => {
+      if (!text) return [];
+      const matches = text.match(/https?:\/\/[^\s"'<>)\]]+/gi) || [];
+      return matches
+        .map((u) => u.replace(/[)\]"'>.,;]+$/, '').trim())
+        .filter((u) => /^https?:\/\/.+/i.test(u));
+    };
+
+    const isPlaceholderOrEmptyEvidence = (str?: string | null): boolean => {
+      if (!str) return true;
+      const clean = str.trim().toLowerCase();
+      return (
+        clean === '' ||
+        clean === 'none' ||
+        clean === 'n/a' ||
+        clean === 'null' ||
+        clean === 'undefined' ||
+        clean === '-' ||
+        clean === 'placeholder' ||
+        clean.includes('exact url') ||
+        clean.includes('example.com/evidence')
+      );
+    };
+
     // Fallback if LLM placed all content in assistant_reply or omitted title/desc
-    const urlInPrompt = formattedConversation.match(/https?:\/\/\S+/)?.[0];
     const userContent = lastMsg?.content || '';
+    const urlsInLastMsg = extractUrls(userContent);
+    const allUrlsInConv = extractUrls(formattedConversation);
+    const promptUrls = urlsInLastMsg.length > 0
+      ? Array.from(new Set(urlsInLastMsg))
+      : allUrlsInConv.length > 0
+      ? Array.from(new Set(allUrlsInConv))
+      : [];
+    const urlInPrompt = promptUrls.length > 0 ? promptUrls.join('\n') : null;
+
     if (!cleanTitle && (urlInPrompt || userContent.length > 20)) {
       const firstLine = userContent.split('\n').filter((l: string) => !l.startsWith('http'))[0] || userContent;
       cleanTitle = firstLine.substring(0, 60).trim();
@@ -229,6 +261,25 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       cleanDesc.length > 5 &&
       !isPlaceholder(cleanDesc)
     );
+
+    // Resolve evidence accurately: prefer extracted URL(s) from prompt if LLM returned placeholder/omitted
+    let resolvedEvidence: string | null = null;
+    if (!isPlaceholderOrEmptyEvidence(parsed.evidence)) {
+      const cleanEv = String(parsed.evidence).replace(/\*\*/g, '').trim();
+      const extracted = extractUrls(cleanEv);
+      resolvedEvidence = extracted.length > 0 ? Array.from(new Set(extracted)).join('\n') : cleanEv;
+    }
+    if ((!resolvedEvidence || !/^https?:\/\//i.test(resolvedEvidence)) && urlInPrompt) {
+      resolvedEvidence = urlInPrompt;
+    }
+    // If prompt had URLs that were missed by the LLM, merge them in
+    if (promptUrls.length > 0 && resolvedEvidence) {
+      const currentUrls = extractUrls(resolvedEvidence);
+      const missingUrls = promptUrls.filter((u) => !currentUrls.includes(u));
+      if (missingUrls.length > 0) {
+        resolvedEvidence = [...currentUrls, ...missingUrls].join('\n');
+      }
+    }
 
     // Build markdown ticket only if ticket data is genuinely ready
     const markdownLines: string[] = [];
@@ -254,10 +305,8 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
         const cleanAC = parsed.acceptance_criteria.map((c: string) => String(c).replace(/\*\*/g, '').trim());
         markdownLines.push(`\n**Acceptance Criteria:**\n${cleanAC.map((c: string) => `- [ ] ${c}`).join('\n')}`);
       }
-      if (selectedFields.includes('evidence')) {
-        const finalEvidence = (parsed.evidence || urlInPrompt || 'https://example.com/evidence').replace(/\*\*/g, '');
-        markdownLines.push(`\n**Evidence:**\n${finalEvidence}`);
-        parsed.evidence = finalEvidence;
+      if (selectedFields.includes('evidence') && resolvedEvidence) {
+        markdownLines.push(`\n**Evidence:**\n${resolvedEvidence}`);
       }
     }
 
@@ -276,7 +325,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       expected_result: hasTicketData ? (parsed.expected_result || (type === 'Improvement' || type === 'Bug' ? userContent : null)) : null,
       actual_result: hasTicketData ? (parsed.actual_result || null) : null,
       acceptance_criteria: hasTicketData ? (parsed.acceptance_criteria || null) : null,
-      evidence: hasTicketData ? (parsed.evidence || urlInPrompt || null) : null,
+      evidence: hasTicketData ? resolvedEvidence : null,
       markdown: hasTicketData ? markdownLines.join('\n') : '',
       tokens_used: usage.totalTokens,
     });

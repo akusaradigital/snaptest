@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Camera, ExternalLink } from "lucide-react";
+import { Camera, ExternalLink, RefreshCw } from "lucide-react";
 
 interface OEmbedData {
   title?: string;
@@ -15,70 +15,130 @@ interface OEmbedData {
 const embedCache = new Map<string, OEmbedData | null>();
 
 export function BugSnapPreviewCard({ url }: { url: string }) {
-  const [data, setData] = useState<OEmbedData | null>(() => embedCache.get(url) || null);
-  const [loading, setLoading] = useState(!embedCache.has(url));
+  const cleanUrl = (url || "").trim().replace(/[)\]"'>.,;]+$/, "");
+  const [data, setData] = useState<OEmbedData | null>(() => embedCache.get(cleanUrl) || null);
+  const [loading, setLoading] = useState(!embedCache.has(cleanUrl));
+  const [retrying, setRetrying] = useState(false);
+
+  const fetchOEmbed = async (targetUrl: string) => {
+    const bugsnapBase = process.env.NEXT_PUBLIC_BUGSNAP_URL || "https://bugsnap.akusaraproject.my.id";
+    const oembedUrl = `${bugsnapBase.replace(/\/+$/, "")}/api/oembed?url=${encodeURIComponent(targetUrl)}`;
+    try {
+      const res = await fetch(oembedUrl);
+      const json = res.ok ? await res.json() : null;
+      embedCache.set(targetUrl, json);
+      setData(json);
+    } catch {
+      embedCache.set(targetUrl, null);
+      setData(null);
+    }
+  };
+
+  const handleRetry = async () => {
+    if (retrying || !cleanUrl) return;
+    setRetrying(true);
+    embedCache.delete(cleanUrl);
+    await fetchOEmbed(cleanUrl);
+    setRetrying(false);
+  };
 
   useEffect(() => {
-    if (embedCache.has(url)) {
-      setData(embedCache.get(url) || null);
+    if (!cleanUrl) {
       setLoading(false);
       return;
     }
 
-    const bugsnapBase = process.env.NEXT_PUBLIC_BUGSNAP_URL || "https://bugsnap.akusaraproject.my.id";
-    const oembedUrl = `${bugsnapBase.replace(/\/+$/, "")}/api/oembed?url=${encodeURIComponent(url)}`;
+    if (embedCache.has(cleanUrl)) {
+      setData(embedCache.get(cleanUrl) || null);
+      setLoading(false);
+      return;
+    }
 
     let cancelled = false;
-    fetch(oembedUrl)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json) => {
-        if (cancelled) return;
-        embedCache.set(url, json);
-        setData(json);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          embedCache.set(url, null);
-          setData(null);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+    setLoading(true);
+    fetchOEmbed(cleanUrl).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [url]);
+  }, [cleanUrl]);
 
   if (loading) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-500 animate-pulse">
-        <Camera className="w-4 h-4" />
-        <span>Loading BugSnap preview...</span>
+      <div className="mt-1 flex items-center justify-between gap-2 rounded-lg border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/30 dark:bg-slate-800/60 px-3 py-2 text-xs text-slate-500">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Camera className="w-4 h-4 text-indigo-500 animate-pulse shrink-0" />
+          <span className="truncate text-slate-600 dark:text-slate-300 font-mono text-[11px]">{cleanUrl}</span>
+        </div>
+        <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium shrink-0 animate-pulse">Loading preview...</span>
       </div>
     );
   }
 
-  if (!data) return null;
+  // Graceful fallback if oEmbed fails or is unavailable — NEVER return null
+  if (!data) {
+    return (
+      <div className="mt-1 overflow-hidden rounded-lg border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-slate-800/80 p-3 shadow-xs text-left">
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-1.5 font-semibold text-indigo-700 dark:text-indigo-400">
+            <Camera className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+            <span>BugSnap Capture</span>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={retrying}
+              title="Retry fetching preview"
+              className="inline-flex items-center gap-1 rounded-md bg-white dark:bg-slate-700 px-2 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 shadow-xs hover:bg-slate-50 dark:hover:bg-slate-600 disabled:opacity-50 transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3 h-3 text-slate-500 ${retrying ? "animate-spin" : ""}`} />
+              <span>{retrying ? "Retrying..." : "Retry"}</span>
+            </button>
+            <a
+              href={cleanUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 rounded-md bg-white dark:bg-slate-700 px-2.5 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/80 shadow-xs hover:bg-indigo-50 dark:hover:bg-slate-600 shrink-0 transition"
+            >
+              <span>Open Capture</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        </div>
+        <div className="mt-2 flex items-center gap-2">
+          <a
+            href={cleanUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-indigo-600 dark:text-indigo-400 underline break-all hover:text-indigo-800 dark:hover:text-indigo-300 font-mono"
+          >
+            {cleanUrl}
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="mt-2 overflow-hidden rounded-lg border border-indigo-100 bg-indigo-50/40 p-3 shadow-sm text-left">
-      <div className="flex items-center justify-between gap-2 border-b border-indigo-100 pb-1.5 text-xs">
-        <div className="flex items-center gap-1.5 font-semibold text-indigo-700">
+    <div className="mt-2 overflow-hidden rounded-lg border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/40 dark:bg-slate-800/80 p-3 shadow-xs text-left">
+      <div className="flex items-center justify-between gap-2 border-b border-indigo-100 dark:border-indigo-900/50 pb-1.5 text-xs">
+        <div className="flex items-center gap-1.5 font-semibold text-indigo-700 dark:text-indigo-400">
           <Camera className="w-3.5 h-3.5" />
           <span>BugSnap Capture</span>
           {data.capture_type && (
-            <span className="rounded bg-indigo-100 px-1 py-0.2 text-[10px] uppercase font-bold text-indigo-800">
+            <span className="rounded bg-indigo-100 dark:bg-indigo-950/60 px-1 py-0.2 text-[10px] uppercase font-bold text-indigo-800 dark:text-indigo-300">
               {data.capture_type}
             </span>
           )}
         </div>
         <a
-          href={url}
+          href={cleanUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 hover:text-indigo-800"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300"
         >
           <span>Open</span>
           <ExternalLink className="w-3 h-3" />
@@ -91,14 +151,22 @@ export function BugSnapPreviewCard({ url }: { url: string }) {
           <img
             src={data.thumbnail_url}
             alt={data.title || "Capture thumbnail"}
-            className="h-16 w-24 rounded object-cover border border-slate-200 bg-slate-900 flex-shrink-0"
+            className="h-16 w-24 rounded object-cover border border-slate-200 dark:border-slate-700 bg-slate-900 flex-shrink-0"
           />
         )}
         <div className="min-w-0 flex-1 space-y-0.5">
-          <h4 className="text-xs font-semibold text-slate-900 truncate">{data.title}</h4>
+          <h4 className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{data.title || "BugSnap Capture"}</h4>
           {data.description && (
-            <p className="text-[11px] text-slate-600 line-clamp-2">{data.description}</p>
+            <p className="text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2">{data.description}</p>
           )}
+          <a
+            href={cleanUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline break-all block truncate font-mono"
+          >
+            {cleanUrl}
+          </a>
         </div>
       </div>
     </div>

@@ -8,11 +8,26 @@ import { BugSnapPreviewCard } from "./BugSnapPreviewCard";
 
 const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 
+const isPlaceholderEvidence = (str?: string | null) => {
+  if (!str) return true;
+  const s = str.trim().toLowerCase();
+  return (
+    s === "none" ||
+    s === "n/a" ||
+    s === "placeholder" ||
+    s === "null" ||
+    s === "undefined" ||
+    s === "-" ||
+    s === "https://example.com/evidence" ||
+    s.includes("exact url")
+  );
+};
+
 const parseEvidenceUrls = (raw?: string) => {
   if (!raw) return [];
   const urls = String(raw).match(/https?:\/\/[^\s,]+/gi) || [];
   if (urls.length > 0) {
-    return Array.from(new Set(urls));
+    return Array.from(new Set(urls.map((u) => u.replace(/[)\]"'>.,;]+$/, "").trim()))).filter(Boolean);
   }
   const clean = String(raw).trim();
   return clean ? [clean] : [];
@@ -63,6 +78,8 @@ export default function TicketChatBubble({
   const [isCompactView, setIsCompactView] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
+  const [syncToJira, setSyncToJira] = useState(true);
+  const [isSyncingJira, setIsSyncingJira] = useState(false);
 
   const handleSyncJiraStatus = async (issueKey: string) => {
     setSyncingStatus(true);
@@ -105,13 +122,53 @@ export default function TicketChatBubble({
       actual_result: stripStars(msg.ticket_result?.actual_result),
       evidence: msg.ticket_result?.evidence || "",
     });
+    setSyncToJira(Boolean(msg.ticket_result?.jira_key));
     setIsEditing(true);
   };
 
-  const saveEditing = () => {
+  const saveEditing = async () => {
+    const hasJiraKey = Boolean(msg.ticket_result?.jira_key);
+    if (hasJiraKey && syncToJira) {
+      setIsSyncingJira(true);
+      try {
+        const config = JSON.parse(localStorage.getItem("jira_config") || "{}");
+        const res = await fetch("/api/jira/update", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            issue_key: msg.ticket_result?.jira_key,
+            auth_type: config.auth_type,
+            access_token: config.access_token,
+            cloud_id: config.cloud_id,
+            jira_domain: config.domain,
+            jira_email: config.email,
+            jira_token: config.token,
+            title: draft.title,
+            description: draft.description,
+            current_behavior: draft.current_behavior,
+            expected_result: draft.expected_result,
+            actual_result: draft.actual_result,
+            acceptance_criteria: msg.ticket_result?.acceptance_criteria,
+            evidence: draft.evidence,
+            priority: msg.ticket_result?.priority,
+            assignee_id: draft.assignee_id,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          throw new Error(data.detail || "Failed to update Jira issue");
+        }
+        toast.success(`Jira issue ${msg.ticket_result?.jira_key} updated in Jira!`);
+      } catch (err: any) {
+        toast.error(err.message || "Failed to sync updates to Jira");
+      } finally {
+        setIsSyncingJira(false);
+      }
+    }
+
     onUpdateTicket?.(msg.id, draft);
     setIsEditing(false);
-    toast.success("Ticket updated");
+    toast.success("Ticket updated locally");
   };
 
   // Keyboard shortcut Escape to cancel editing
@@ -596,18 +653,38 @@ export default function TicketChatBubble({
                   placeholder="https://..."
                 />
               </label>
+              {msg.ticket_result?.jira_key && (
+                <label className="flex items-center gap-2 pt-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={syncToJira}
+                    onChange={(e) => setSyncToJira(e.target.checked)}
+                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                  />
+                  <span>Sync updates directly to Jira ({msg.ticket_result.jira_key})</span>
+                </label>
+              )}
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
+                  disabled={isSyncingJira}
                   onClick={saveEditing}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs"
+                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Save Changes
+                  {isSyncingJira ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Updating Jira...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
                 </button>
                 <button
                   type="button"
+                  disabled={isSyncingJira}
                   onClick={() => setIsEditing(false)}
-                  className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs"
+                  className="px-3 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs disabled:opacity-50"
                 >
                   Cancel (Esc)
                 </button>
@@ -706,7 +783,7 @@ export default function TicketChatBubble({
             </div>
           )}
 
-          {ticket.evidence && (
+          {ticket.evidence && !isPlaceholderEvidence(ticket.evidence) && (
             <div>
               <p className="font-bold mb-1.5">Evidence:</p>
               <div className="space-y-1.5">
@@ -723,7 +800,7 @@ export default function TicketChatBubble({
                             href={url}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs flex items-center gap-1 hover:text-indigo-800"
+                            className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs flex items-center gap-1 hover:text-indigo-800 dark:hover:text-indigo-300"
                           >
                             <span>{url}</span>
                             <ExternalLink className="w-3 h-3 inline-block shrink-0" />
