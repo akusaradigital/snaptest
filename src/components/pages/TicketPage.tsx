@@ -946,7 +946,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           <button
             type="button"
             onClick={handleCreateNewSession}
-            className="p-1.5 rounded-lg text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-slate-800 transition"
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-blue-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             title="New Chat"
           >
             <PlusCircle className="w-4 h-4" />
@@ -962,7 +962,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
               value={sessionSearch}
               onChange={(e) => setSessionSearch(e.target.value)}
               placeholder="Search chats..."
-              className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           </div>
           <div className="flex items-center gap-1 overflow-x-auto pb-0.5 scrollbar-none text-[10px] font-semibold">
@@ -978,7 +978,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 onClick={() => setTypeFilter(f.id)}
                 className={`px-2 py-0.5 rounded-md transition whitespace-nowrap ${
                   typeFilter === f.id
-                    ? "bg-indigo-600 text-white"
+                    ? f.id === "bug"
+                      ? "bg-rose-600 text-white shadow-xs"
+                      : f.id === "improvement"
+                      ? "bg-amber-600 text-white shadow-xs"
+                      : f.id === "feature"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900 shadow-xs"
                     : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700"
                 }`}
               >
@@ -1027,7 +1033,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     onClick={() => handleSelectSession(s.id)}
                     className={`group relative p-2.5 rounded-xl cursor-pointer transition flex items-center justify-between text-xs ${
                       isSelected
-                        ? "bg-white dark:bg-slate-800 shadow-sm border border-slate-200 dark:border-slate-700 text-indigo-600 dark:text-indigo-400 font-semibold"
+                        ? "bg-white dark:bg-slate-800 shadow-xs border-l-2 border-l-blue-600 border-y border-r border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 font-semibold"
                         : "hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-600 dark:text-slate-300"
                     }`}
                   >
@@ -1039,7 +1045,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onBlur={() => handleSaveRename(s.id)}
-                            className="w-full px-1.5 py-0.5 rounded border border-indigo-500 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                            className="w-full px-1.5 py-0.5 rounded border border-blue-500 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
                           />
                         </form>
                       ) : (
@@ -1136,9 +1142,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             <button
               type="button"
               onClick={handleCreateNewSession}
-              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-600 dark:bg-slate-800 dark:text-indigo-400 hover:bg-indigo-100 transition font-medium"
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
+              <PlusCircle className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
               <span>New Chat</span>
             </button>
           </div>
@@ -1148,8 +1154,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-4 scrollbar-thin">
           {messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center min-h-[45vh] text-center p-4">
-              <div className="w-10 h-10 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center mb-3">
-                <Bot className="w-5 h-5 text-indigo-600" />
+              <div className="w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center mb-3">
+                <Bot className="w-5 h-5 text-blue-600 dark:text-blue-400" />
               </div>
               <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">
                 Start a Ticket Conversation
@@ -1160,7 +1166,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
               <button
                 type="button"
                 onClick={() => setInputText("https://example.com/checkout bug: checkout page fails to apply discount code")}
-                className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 hover:border-indigo-300 transition"
+                className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 hover:border-blue-300 hover:text-blue-600 transition"
               >
                 💡 Example: Checkout Discount Bug
               </button>
@@ -1172,7 +1178,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "assistant" && (
-                  <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-1 shadow-sm">
+                  <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 mt-1 shadow-xs">
                     <Bot className="w-3.5 h-3.5" />
                   </div>
                 )}
@@ -1204,7 +1210,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                       type="button"
                       onClick={handleRegenerate}
                       disabled={isRegenerating}
-                      className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-indigo-600 transition disabled:opacity-50"
+                      className="flex items-center gap-1.5 text-[11px] text-slate-400 hover:text-blue-600 transition disabled:opacity-50"
                     >
                       <RotateCcw className={`w-3 h-3 ${isRegenerating ? "animate-spin" : ""}`} />
                       <span>{isRegenerating ? "Regenerating..." : "Regenerate reply"}</span>
@@ -1223,11 +1229,11 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
           {isLoading && (
             <div className="flex gap-2 justify-start items-center">
-              <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0">
                 <Bot className="w-3.5 h-3.5" />
               </div>
               <div className="p-3 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 flex items-center gap-2 text-xs text-slate-500">
-                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
                 <span>AI Agent is analyzing context &amp; preparing reply...</span>
               </div>
             </div>
@@ -1252,7 +1258,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             )}
 
             <form onSubmit={handleSendMessage} className="flex items-center gap-2">
-              <label className="p-2 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 cursor-pointer transition shrink-0" title="Attach screenshot">
+              <label className="p-2 rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer transition shrink-0" title="Attach screenshot">
                 <Upload className="w-5 h-5" />
                 <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </label>
@@ -1277,7 +1283,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
               <button
                 type="submit"
                 disabled={isLoading || (!inputText.trim() && !imageBase64)}
-                className="p-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition shrink-0"
+                className="p-2 rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition shrink-0"
                 title="Send message (Enter or Ctrl+Enter)"
               >
                 <Send className="w-4 h-4" />

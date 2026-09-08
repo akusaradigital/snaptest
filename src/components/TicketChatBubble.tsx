@@ -378,7 +378,7 @@ export default function TicketChatBubble({
   return (
     <div className={`p-4 rounded-2xl text-sm ${
       isUser
-        ? "bg-indigo-600 text-white rounded-br-none shadow-md shadow-indigo-600/10"
+        ? "bg-slate-900 text-white rounded-br-none shadow-sm dark:bg-slate-700 dark:text-slate-100"
         : "bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-none shadow-sm font-sans"
     }`}>
       {msg.image_preview && (
@@ -471,7 +471,7 @@ export default function TicketChatBubble({
                         toast.success("Set to Unassigned");
                       }
                     }}
-                    className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   >
                     <option value="">👤 Unassigned</option>
                     {jiraMembers.map(u => (
@@ -498,9 +498,9 @@ export default function TicketChatBubble({
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
                 isPushed
                   ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
-                  : "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800"
+                  : "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-indigo-500 animate-pulse"}`}></span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-blue-500 animate-pulse"}`}></span>
                 {isPushed ? "Pushed" : "Ready to Push"}
               </span>
             </div>
@@ -540,7 +540,7 @@ export default function TicketChatBubble({
                   <button
                     type="button"
                     onClick={() => onSelectSession(similarTicket.sessionId)}
-                    className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline shrink-0"
+                    className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline shrink-0"
                   >
                     View Chat
                   </button>
@@ -562,7 +562,7 @@ export default function TicketChatBubble({
                 <input
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 />
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -572,7 +572,7 @@ export default function TicketChatBubble({
                     value={draft.component || ""}
                     onChange={(e) => setDraft({ ...draft, component: e.target.value })}
                     placeholder="e.g. Talent Library"
-                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   />
                 </label>
 
@@ -589,7 +589,7 @@ export default function TicketChatBubble({
                           assignee_name: selectedUser?.displayName || "",
                         });
                       }}
-                      className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                      className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                     >
                       <option value="">Unassigned</option>
                       {jiraMembers.map(user => (
@@ -607,7 +607,7 @@ export default function TicketChatBubble({
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
                   rows={3}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 />
               </label>
               {draft.issue_type === "Improvement" && (
@@ -617,7 +617,7 @@ export default function TicketChatBubble({
                     value={draft.current_behavior}
                     onChange={(e) => setDraft({ ...draft, current_behavior: e.target.value })}
                     rows={2}
-                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   />
                 </label>
               )}
@@ -629,7 +629,7 @@ export default function TicketChatBubble({
                   value={draft.expected_result}
                   onChange={(e) => setDraft({ ...draft, expected_result: e.target.value })}
                   rows={2}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 />
               </label>
               {draft.issue_type === "Bug" && (
@@ -639,7 +639,7 @@ export default function TicketChatBubble({
                     value={draft.actual_result}
                     onChange={(e) => setDraft({ ...draft, actual_result: e.target.value })}
                     rows={2}
-                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   />
                 </label>
               )}
@@ -648,7 +648,7 @@ export default function TicketChatBubble({
                 <input
                   value={draft.evidence}
                   onChange={(e) => setDraft({ ...draft, evidence: e.target.value })}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   placeholder="https://..."
                 />
               </label>
@@ -658,7 +658,7 @@ export default function TicketChatBubble({
                     type="checkbox"
                     checked={syncToJira}
                     onChange={(e) => setSyncToJira(e.target.checked)}
-                    className="rounded text-indigo-600 focus:ring-indigo-500"
+                    className="rounded text-blue-600 focus:ring-blue-500"
                   />
                   <span>Sync updates directly to Jira ({msg.ticket_result.jira_key})</span>
                 </label>
@@ -668,7 +668,7 @@ export default function TicketChatBubble({
                   type="button"
                   disabled={isSyncingJira}
                   onClick={saveEditing}
-                  className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold shadow-xs disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isSyncingJira ? (
                     <>
@@ -722,8 +722,8 @@ export default function TicketChatBubble({
             {ticket.assignee_name && (
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-xs">Assignee:</span>
-                <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-medium flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500"></span>
+                <span className="px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600 text-xs font-medium flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                   {ticket.assignee_name}
                 </span>
               </div>
@@ -770,7 +770,7 @@ export default function TicketChatBubble({
                         type="checkbox"
                         checked={isChecked}
                         onChange={(e) => setCheckedCriteria({ ...checkedCriteria, [idx]: e.target.checked })}
-                        className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                        className="mt-0.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
                       />
                       <span className={`text-xs transition leading-relaxed ${isChecked ? "line-through text-slate-400 dark:text-slate-500" : "text-slate-700 dark:text-slate-200"}`}>
                         {stripStars(c)}
@@ -795,7 +795,7 @@ export default function TicketChatBubble({
                           href={url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-indigo-600 dark:text-indigo-400 underline break-all text-xs inline-flex items-center gap-1 hover:text-indigo-800 dark:hover:text-indigo-300"
+                          className="text-blue-600 dark:text-blue-400 underline break-all text-xs inline-flex items-center gap-1 hover:text-blue-800 dark:hover:text-blue-300"
                         >
                           <span>{url}</span>
                           <ExternalLink className="w-3 h-3 inline-block shrink-0" />
@@ -841,7 +841,7 @@ export default function TicketChatBubble({
                       className="p-1 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-600 transition"
                       title="Sync live status from Jira"
                     >
-                      <RefreshCw className={`w-3 h-3 ${syncingStatus ? "animate-spin text-indigo-600" : ""}`} />
+                      <RefreshCw className={`w-3 h-3 ${syncingStatus ? "animate-spin text-blue-600" : ""}`} />
                     </button>
                   )}
                 </div>
@@ -850,13 +850,13 @@ export default function TicketChatBubble({
                   type="button"
                   onClick={handlePushClick}
                   disabled={pushingJira}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 transition disabled:opacity-50"
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 transition disabled:opacity-50"
                   title="Push this issue to Jira Cloud"
                 >
                   {pushingJira ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
                   ) : (
-                    <Ticket className="w-3.5 h-3.5 text-indigo-600" />
+                    <Ticket className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
                   )}
                   <span>{pushingJira ? "Pushing..." : "Push to Jira"}</span>
                 </button>
@@ -1001,10 +1001,10 @@ export default function TicketChatBubble({
                         className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
                       >
                         <div className="flex items-center gap-2">
-                          <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                          <FileText className="w-3.5 h-3.5 text-blue-500" />
                           <span>Markdown (.md)</span>
                         </div>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-600">MD</span>
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-600">MD</span>
                       </button>
 
                       <button
@@ -1056,7 +1056,11 @@ export default function TicketChatBubble({
               <button
                 type="button"
                 onClick={copyToClipboard}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-xs"
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition shadow-xs ${
+                  copiedAll
+                    ? "bg-emerald-600 text-white hover:bg-emerald-700"
+                    : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
+                }`}
                 title="Copy markdown formatted ticket to clipboard"
               >
                 {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
@@ -1076,7 +1080,7 @@ export default function TicketChatBubble({
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full max-h-[85vh] overflow-y-auto shadow-2xl border border-slate-200 dark:border-slate-700 p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-700">
               <div className="flex items-center gap-2">
-                <Ticket className="w-5 h-5 text-indigo-600" />
+                <Ticket className="w-5 h-5 text-blue-600" />
                 <h3 className="font-bold text-slate-900 dark:text-white">Jira Issue Preview</h3>
               </div>
               <button
@@ -1141,7 +1145,7 @@ export default function TicketChatBubble({
                       assignee_name: u?.displayName || "",
                     });
                   }}
-                  className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                  className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 >
                   <option value="">Leave Unassigned</option>
                   {jiraMembers.map(u => (
@@ -1176,7 +1180,7 @@ export default function TicketChatBubble({
         </div>
       )}
 
-      <span className={`text-[10px] block mt-2 ${isUser ? "text-indigo-200" : "text-slate-400"}`}>
+      <span className={`text-[10px] block mt-2 ${isUser ? "text-slate-400" : "text-slate-400"}`}>
         {msg.timestamp}
       </span>
     </div>
