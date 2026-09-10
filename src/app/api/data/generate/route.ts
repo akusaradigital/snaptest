@@ -9,7 +9,7 @@ export async function POST(req: Request) {
     if (!session?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     const userId = session.user.email;
     const body = await req.json();
-    const { prompt, ai_provider, ai_model, api_key, nine_router_public_url, nine_router_public_key } = body;
+    const { prompt, custom_rules, ai_provider, ai_model, api_key, nine_router_public_url, nine_router_public_key } = body;
 
     if (!prompt || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
       return NextResponse.json({ detail: 'Missing required fields' }, { status: 400 });
@@ -18,8 +18,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ detail: '9Router Public URL is required' }, { status: 400 });
     }
 
-    const systemPrompt =
+    const basePrompt =
       "You are a senior QA Engineer specializing in test data generation. Given a field description or JSON schema, generate a realistic set of mock records covering happy-path, boundary, and negative/edge cases.\n\nReturn ONLY a valid JSON array of record objects, e.g.:\n[\n  { \"field1\": \"value\", \"field2\": 123 },\n  { \"field1\": \"edge-case-value\", \"field2\": -1 }\n]\n\nGenerate at least 8 records. Do not wrap the array in an object, and do not include any explanation outside the JSON.";
+    const systemPrompt = custom_rules ? `${basePrompt}\n\nUSER CUSTOM TEST DATA RULES & PREFERENCES:\n${custom_rules}` : basePrompt;
 
     const raw = await callLLM(
       ai_provider,

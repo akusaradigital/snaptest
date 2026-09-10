@@ -155,6 +155,8 @@ export async function POST(request: Request) {
       jira_project_key,
       issue_type,
       title,
+      label,
+      labels,
       ...rest
     } = await request.json();
 
@@ -248,6 +250,15 @@ export async function POST(request: Request) {
       jiraFields.assignee = { accountId: assigneeAccountId };
     }
 
+    const rawLabels = labels || label;
+    if (rawLabels) {
+      const labelArr = Array.isArray(rawLabels) ? rawLabels : [rawLabels];
+      const cleanLabels = labelArr.map((l: any) => String(l).trim()).filter(Boolean);
+      if (cleanLabels.length > 0) {
+        jiraFields.labels = cleanLabels;
+      }
+    }
+
     const jiraBody = { fields: jiraFields };
 
     let res;
@@ -268,6 +279,10 @@ export async function POST(request: Request) {
       }
       if (errors.assignee && jiraFields.assignee) {
         delete jiraFields.assignee;
+        modified = true;
+      }
+      if (errors.labels && jiraFields.labels) {
+        delete jiraFields.labels;
         modified = true;
       }
       if (modified) {

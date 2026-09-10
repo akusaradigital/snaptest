@@ -18,6 +18,8 @@ import {
   Sliders,
   Sparkles,
   Key,
+  Brain,
+  ClipboardList,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import axios from "axios";
@@ -53,8 +55,10 @@ export default function SettingsPage({
   const [activeIntegrationDetail, setActiveIntegrationDetail] = useState<IntegrationId | null>(null);
   const [integrationSearch, setIntegrationSearch] = useState("");
 
+  const [globalCustomPrompt, setGlobalCustomPrompt] = useState("");
   const [customPrompt, setCustomPrompt] = useState("");
   const [ticketCustomPrompt, setTicketCustomPrompt] = useState("");
+  const [plannerCustomPrompt, setPlannerCustomPrompt] = useState("");
 
   // Jira config state
   const [jiraAuthType, setJiraAuthType] = useState<"oauth2" | "pat">("oauth2");
@@ -116,8 +120,10 @@ export default function SettingsPage({
     if (savedPrompt) {
       try {
         const parsed = JSON.parse(savedPrompt);
+        setGlobalCustomPrompt(parsed.globalCustomPrompt || "");
         setCustomPrompt(parsed.customPrompt || "");
         setTicketCustomPrompt(parsed.ticketCustomPrompt || "");
+        setPlannerCustomPrompt(parsed.plannerCustomPrompt || "");
         if (parsed.hideInactiveIntegrations !== undefined) {
           setHideInactiveIntegrations(parsed.hideInactiveIntegrations);
         }
@@ -367,6 +373,11 @@ export default function SettingsPage({
     localStorage.setItem("snaptest_settings", JSON.stringify(current));
   };
 
+  const handleSaveGlobalPrompt = () => {
+    saveSettings("globalCustomPrompt", globalCustomPrompt);
+    toast.success("Universal AI memory rules saved");
+  };
+
   const handleSavePrompt = () => {
     saveSettings("customPrompt", customPrompt);
     toast.success("Custom test prompt saved");
@@ -375,6 +386,11 @@ export default function SettingsPage({
   const handleSaveTicketPrompt = () => {
     saveSettings("ticketCustomPrompt", ticketCustomPrompt);
     toast.success("Custom ticket agent prompt saved");
+  };
+
+  const handleSavePlannerPrompt = () => {
+    saveSettings("plannerCustomPrompt", plannerCustomPrompt);
+    toast.success("Test planner custom rules saved");
   };
 
   const active = SECTIONS.find((s) => s.id === activeSection) || SECTIONS[0];
@@ -492,46 +508,99 @@ export default function SettingsPage({
 
           {activeSection === "generation" && (
             <div className="max-w-2xl space-y-8">
-              <section>
-                <div className="flex items-center gap-2">
-                  <FileText className="h-4 w-4 text-slate-500" />
-                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Custom Test Case Prompt</h3>
+              {/* Universal AI Memory (All Features) */}
+              <section className="bg-gradient-to-br from-indigo-50/60 to-purple-50/50 dark:from-indigo-950/20 dark:to-purple-950/20 border border-indigo-100 dark:border-indigo-900/50 rounded-xl p-5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Brain className="h-5 w-5 text-indigo-600 dark:text-indigo-400" />
+                    <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Universal AI Memory (Semua Fitur)</h3>
+                  </div>
+                  <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                    Cross-Feature Memory
+                  </span>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">
-                  Extra instructions appended to the AI prompt when generating test cases.
+                <p className="mt-2 text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                  Aturan atau format umum yang otomatis dipatuhi oleh seluruh fitur AI (Ticket Agent, Test Generator, Test Planner, API Agent, &amp; Mock Data). Ketika Anda mengatakan <code className="px-1 py-0.5 rounded bg-indigo-100/60 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 text-[11px]">&quot;ingat format ini&quot;</code> di chat, AI otomatis menyimpannya ke sini.
                 </p>
                 <textarea
-                  rows={6}
-                  value={customPrompt}
-                  onChange={(e) => setCustomPrompt(e.target.value)}
-                  placeholder="e.g. Always use page.getByTestId() instead of classes. Ensure all tests run in parallel. Add accessibility checks."
-                  className="input-field mt-3 resize-y text-sm"
+                  rows={4}
+                  value={globalCustomPrompt}
+                  onChange={(e) => setGlobalCustomPrompt(e.target.value)}
+                  placeholder="e.g. - Selalu gunakan Bahasa Indonesia lugas untuk QA.&#10;- Gunakan format judul [Modul] - Masalah spesifik.&#10;- Jangan terjemahkan istilah teknis baku seperti endpoint, API, payload, response."
+                  className="input-field mt-3 resize-y text-xs font-mono bg-white dark:bg-slate-900"
                 />
                 <div className="mt-3 flex justify-end">
-                  <button type="button" onClick={handleSavePrompt} className="btn-primary text-xs">
-                    Save Test Prompt
+                  <button type="button" onClick={handleSaveGlobalPrompt} className="btn-primary text-xs flex items-center gap-1.5">
+                    <Brain className="w-3.5 h-3.5" /> Save Universal Memory
                   </button>
                 </div>
               </section>
 
-              <section className="pt-6 border-t border-slate-200 dark:border-slate-800">
+              {/* Ticket Agent Rules */}
+              <section className="pt-2">
                 <div className="flex items-center gap-2">
                   <Sparkles className="h-4 w-4 text-purple-600" />
                   <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Issue &amp; Ticket Agent Custom Rules</h3>
                 </div>
-                <p className="mt-2 text-sm text-slate-500">
-                  Custom rules or guidelines for Jira tickets (e.g. mandatory acceptance criteria rules, prefix naming conventions, priority mappings).
+                <p className="mt-2 text-xs text-slate-500">
+                  Instruksi spesifik pembuatan tiket Jira &amp; bug report (misal: template acceptance criteria, format reproduksi, dsb).
                 </p>
                 <textarea
-                  rows={6}
+                  rows={5}
                   value={ticketCustomPrompt}
                   onChange={(e) => setTicketCustomPrompt(e.target.value)}
-                  placeholder="e.g. Always prefix bug titles with '[QA-REVIEW]'. Format acceptance criteria with Gherkin Given-When-Then. Always include team component tags."
-                  className="input-field mt-3 resize-y text-sm"
+                  placeholder="e.g. Format acceptance criteria wajib dengan checklist verifikasi konkret. Selalu sertakan langkah reproduksi terstruktur."
+                  className="input-field mt-3 resize-y text-xs font-mono"
                 />
                 <div className="mt-3 flex justify-end">
                   <button type="button" onClick={handleSaveTicketPrompt} className="btn-primary text-xs">
                     Save Ticket Rules
+                  </button>
+                </div>
+              </section>
+
+              {/* Test Generator Rules */}
+              <section className="pt-6 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-slate-500" />
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">Test Case Generator Custom Rules</h3>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Instruksi tambahan yang disisipkan saat AI meng-generate test cases (Playwright/Cypress/Manual).
+                </p>
+                <textarea
+                  rows={5}
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  placeholder="e.g. Always use page.getByTestId() instead of classes. Ensure all tests run in parallel. Add accessibility checks."
+                  className="input-field mt-3 resize-y text-xs font-mono"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={handleSavePrompt} className="btn-primary text-xs">
+                    Save Generator Rules
+                  </button>
+                </div>
+              </section>
+
+              {/* Test Planner Rules */}
+              <section className="pt-6 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-2">
+                  <ClipboardList className="h-4 w-4 text-blue-600" />
+                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200">QA Test Planner Custom Rules</h3>
+                </div>
+                <p className="mt-2 text-xs text-slate-500">
+                  Instruksi perancangan test plan &amp; matriks pengujian (misal: standard IEEE 829, pembagian fase sprint QA, prioritisasi risiko).
+                </p>
+                <textarea
+                  rows={5}
+                  value={plannerCustomPrompt}
+                  onChange={(e) => setPlannerCustomPrompt(e.target.value)}
+                  placeholder="e.g. Selalu bagi test matrix ke P0 (Blocker), P1 (Critical), P2 (Major). Sertakan estimasi effort QA per test case."
+                  className="input-field mt-3 resize-y text-xs font-mono"
+                />
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={handleSavePlannerPrompt} className="btn-primary text-xs">
+                    Save Planner Rules
                   </button>
                 </div>
               </section>

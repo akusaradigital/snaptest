@@ -11,6 +11,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const {
       input,
+      custom_rules,
       ai_provider,
       ai_model,
       api_key,
@@ -47,7 +48,11 @@ Return ONLY a valid JSON object with this structure:
   ],
   "total_effort_hours": 4.5,
   "coverage_summary": "Brief 1-2 sentence summary of coverage"
-}`;
+}
+${custom_rules ? `
+USER CUSTOM QA GUIDELINES & PREFERENCES:
+${custom_rules}
+` : ""}`;
 
     const raw = await callLLM(
       ai_provider,

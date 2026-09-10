@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getAiRequestPayload, getApiKey } from "@/lib/keys";
+import { getEffectiveAiRules } from "@/lib/aiMemory";
 import { useServerSessions } from "@/lib/useServerSessions";
 import { classifyUnifiedQaIntent, createSseParser, withTestCaseClientIds } from "@/lib/unifiedQaChat.mjs";
 import type { UnifiedQaArtifacts, UnifiedQaIntent, UnifiedQaSession } from "@/types/unifiedQaChat";
@@ -384,6 +385,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       document_text: uploadedFile?.type === "pdf" ? (uploadedFile.text || "") : undefined,
       document_image_base64: uploadedFile?.type === "image" ? uploadedFile.imageBase64 : undefined,
       ...aiPayload,
+      custom_prompt: getEffectiveAiRules("generator"),
       framework: "playwright",
       language: "typescript",
       fast_mode: false,

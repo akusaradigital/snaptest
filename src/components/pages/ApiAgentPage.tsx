@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import axios from "axios";
 import { getAiRequestPayload } from "@/lib/keys";
+import { getEffectiveAiRules } from "@/lib/aiMemory";
 import {
   Network, FileJson, FileText, Loader2, Copy,
   CheckCircle2, Download, Paperclip,
@@ -124,6 +125,7 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
       const res = await axios.post("/api/api-agent/generate", {
         input: inputText,
         input_type: inputType,
+        custom_rules: getEffectiveAiRules("api"),
         ...getAiRequestPayload(aiProvider, aiModel),
       });
       setResult(res.data.result);

@@ -134,10 +134,37 @@ TEMPLATE FORMAT RULES (You MUST populate all required fields for the detected ty
   - evidence: Exact URL or reference.
 
 STRICT CONTEXT RULES:
-- LANGUAGE: Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation, even in later turns and even if the user then switches back to a different language for a message — their explicit instruction always overrides the default of matching the latest message.
+- LANGUAGE & DEVELOPER-FRIENDLY INDONESIAN BUG REPORT RULES:
+  Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation.
+  WHEN WRITING IN INDONESIAN (STANDARD SOFTWARE ENGINEERING & QA IN INDONESIA):
+  1. Gaya Bahasa: Lugas, objektif, dan to the point agar developer langsung paham tanpa kebingungan.
+  2. Istilah Teknis: JANGAN terjemahkan istilah teknis baku software engineering menjadi terjemahan harfiah kaku (tetap gunakan istilah: endpoint, API, payload, response, UI/UX, crash, timeout, query, token, session, console error, network log, status code 4xx/500, dsb).
+  3. Format Judul (title):
+     - Pola: "[Nama Modul / Fitur] - [Kendala spesifik & kondisi pemicu]"
+     - Contoh: "[Checkout] - Tombol Bayar Sekarang tidak merespons setelah memilih metode QRIS"
+  4. Format Deskripsi (description):
+     - Wajib terstruktur rapi dengan format:
+       * Ringkasan Masalah: 1-2 kalimat ringkas menjelaskan kendala dan dampaknya.
+       * Langkah-langkah Reproduksi (Steps to Reproduce):
+         1. Buka halaman / URL ...
+         2. Lakukan aksi ...
+         3. Amati kendala yang muncul.
+       * Catatan Teknis / Lingkungan (bila relevan): endpoint terkait, tipe request, browser/device, atau pesan error console/network.
+  5. Hasil yang Diharapkan (expected_result):
+     - Jelaskan perilaku sistem yang semestinya terjadi secara spesifik menurut kebutuhan bisnis/teknis yang benar.
+  6. Hasil Aktual (actual_result):
+     - Jelaskan secara detail kegagalan/error yang terjadi di sistem (UI freeze, tombol disabled, muncul toast error 500, unhandled rejection di console, dsb).
+  7. Kriteria Penerimaan / Acceptance Criteria (acceptance_criteria):
+     - Buat daftar checklist verifikasi konkret (Definition of Done) bagi developer dan QA untuk memastikan bug tuntas diperbaiki tanpa regresi.
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
+- REMEMBER & MEMORY INSTRUCTIONS:
+  If the user explicitly asks you to remember, save, or retain a rule, format, template preference, or guideline for future sessions (e.g. phrases like "ingat format ini", "ingat aturan ini", "remember this rule/format", "ingat ya formatnya...", "mulai sekarang formatnya...", "ingat seterusnya..."):
+  * Extract the core rule or preference clearly, concisely, and imperatively (e.g. "Format judul bug report wajib: [Nama Modul] - Ringkasan masalah, sertakan Langkah Reproduksi berurutan").
+  * Put this extracted instruction into the "remember_rule" field of the JSON output.
+  * In "assistant_reply", warmly confirm that you have saved and remembered this rule for future sessions.
+  * If the user does not request to remember anything, set "remember_rule": null.
 ${custom_rules ? `\nUSER CUSTOM TICKET RULES & GUIDELINES:\n${custom_rules}\n` : ''}
 
 OUTPUT FORMAT:
@@ -146,6 +173,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
   "has_ticket_data": boolean,
   "chat_title": "Short 3-5 word session title summarizing the topic (or 'New Ticket Chat' if just greeting)",
   "assistant_reply": "Your conversational response to the user, in the language determined by the LANGUAGE rule above",
+  "remember_rule": "Extracted rule to remember for future sessions, or null",
   "issue_type": "Bug" | "Improvement" | "New Feature",
   "priority": "P0" | "P1" | "P2" | "P3",
   "title": "Clean title without ** stars",
@@ -170,13 +198,15 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       return `${m.role.toUpperCase()} (Turn ${i + 1}):\n${m.content}${imgNote}`;
     }).join('\n\n');
 
-    const fullPrompt = `Conversation History & Latest Request:\n${formattedConversation}`;
+    const latestMessageHasImage = !!lastMsg?.image_base64;
+    const userPromptText = (lastMsg?.content?.trim() || !latestMessageHasImage)
+      ? formattedConversation
+      : `${formattedConversation}\n\n[Please analyze the attached screenshot, identify any bugs, issues, or UI states depicted, and create a complete Jira ticket.]`;
+    const fullPrompt = `Conversation History & Latest Request:\n${userPromptText}`;
 
     const usage: any = { totalTokens: 0 };
     const completion: CompletionOut = {};
     let rawResponse = '';
-
-    const latestMessageHasImage = !!lastMsg?.image_base64;
 
     if (latestMessageHasImage && lastMsg.image_base64) {
       if (!supportsVision(p, model)) {
@@ -255,7 +285,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
     }
 
     const hasTicketData = Boolean(
-      (parsed.has_ticket_data === true || !!urlInPrompt || userContent.length > 30) &&
+      (parsed.has_ticket_data === true || !!urlInPrompt || userContent.length > 30 || latestMessageHasImage) &&
       cleanTitle.length > 3 &&
       !isPlaceholder(cleanTitle) &&
       cleanDesc.length > 5 &&
@@ -327,10 +357,11 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       acceptance_criteria: hasTicketData ? (parsed.acceptance_criteria || null) : null,
       evidence: hasTicketData ? resolvedEvidence : null,
       markdown: hasTicketData ? markdownLines.join('\n') : '',
+      remember_rule: parsed.remember_rule ? String(parsed.remember_rule).trim() : null,
       tokens_used: usage.totalTokens,
     });
   } catch (err: any) {
-    const message = err instanceof Error && /AI (response was truncated|returned (incomplete|invalid) ticket data)/.test(err.message)
+    const message = err instanceof Error && err.message
       ? err.message
       : 'Failed to generate ticket. Please check your AI provider and try again.';
     return NextResponse.json({ detail: message }, { status: 502 });

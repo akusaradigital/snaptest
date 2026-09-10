@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Database, Copy, Download, Loader2 } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
+import { getEffectiveAiRules } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
 
 interface DataGenPageProps {
@@ -37,6 +38,7 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt,
+          custom_rules: getEffectiveAiRules("data"),
           ...aiPayload
         }),
       });

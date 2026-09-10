@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
+import { getEffectiveAiRules } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
 
 interface PlannerPageProps {
@@ -233,6 +234,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           input: text,
+          custom_rules: getEffectiveAiRules("planner"),
           ...aiPayload,
         }),
       });

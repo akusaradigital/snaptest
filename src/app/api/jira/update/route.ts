@@ -220,6 +220,15 @@ export async function PUT(request: Request) {
       jiraFields.assignee = { accountId: assigneeAccountId };
     }
 
+    const rawLabels = rest.labels || rest.label || rest.jira_label;
+    if (rawLabels) {
+      const labelArr = Array.isArray(rawLabels) ? rawLabels : [rawLabels];
+      const cleanLabels = labelArr.map((l: any) => String(l).trim()).filter(Boolean);
+      if (cleanLabels.length > 0) {
+        jiraFields.labels = cleanLabels;
+      }
+    }
+
     const jiraBody = { fields: jiraFields };
 
     let res;
@@ -240,6 +249,10 @@ export async function PUT(request: Request) {
       }
       if (errors.assignee && jiraFields.assignee) {
         delete jiraFields.assignee;
+        modified = true;
+      }
+      if (errors.labels && jiraFields.labels) {
+        delete jiraFields.labels;
         modified = true;
       }
       if (modified) {

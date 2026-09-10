@@ -103,7 +103,7 @@ export async function POST(request: Request) {
 		    const session = await getSession();
 		    if (!session?.user?.email) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
 		    const userId = session.user.email;
-		    const { url, user_context, document_title, document_text, document_image_base64, ai_provider, ai_model, api_key, auth, framework, language, generation_mode, output_mode, crawl_mode, nine_router_public_url, nine_router_public_key } = await request.json();
+		    const { url, user_context, document_title, document_text, document_image_base64, ai_provider, ai_model, api_key, auth, framework, language, generation_mode, output_mode, crawl_mode, nine_router_public_url, nine_router_public_key, custom_prompt } = await request.json();
 		    if (!ai_provider) return NextResponse.json({ detail: 'AI Provider is required. Please select one in AI Settings.' }, { status: 400 });
 		    if (!ai_model) return NextResponse.json({ detail: 'AI Model is required. Please select one in AI Settings.' }, { status: 400 });
     const modeMinTC: Record<string, number> = { quick: 10, standard: 30, thorough: 50 };
@@ -308,7 +308,7 @@ export async function POST(request: Request) {
             p,
             stage1Model,
             apiKey,
-            '',
+            custom_prompt || '',
             minTestCases,
             publicBaseUrl
           );

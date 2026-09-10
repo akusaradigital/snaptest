@@ -24,29 +24,88 @@ function providerError(provider: string, status: number): Error {
 
 export function supportsVision(provider: string, model: string): boolean {
   const m = model.toLowerCase();
-  const p = provider.toLowerCase();
-  // OpenAI: GPT-4o, GPT-4-turbo, GPT-4.1, o1/o3/o4 series
-  if (p === 'openai') return /gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|o[134]/.test(m);
+  const p = provider.toLowerCase().trim();
+
+  // OpenAI: GPT-5 series (gpt-5.5, gpt-5.4, gpt-5.4-mini), GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-4.1, o1, o4
+  // Exclude mini reasoning models that lack vision (o1-mini, o3-mini)
+  if (p === 'openai') {
+    if (/o1-mini|o3-mini/.test(m)) return false;
+    return /gpt-5|gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|o[14]/.test(m);
+  }
+
   // Anthropic: all current models (Opus 4.x, Sonnet 4.x, Haiku 4.x, Fable 5)
   if (p === 'anthropic') return true;
+
   // Google: all Gemini models
   if (p === 'google') return true;
+
   // Groq: Llama 4 and Llama 3.2 Vision
   if (p === 'groq') return /llama-4|llama4|llama-3\.2|vision/.test(m);
+
   // DeepSeek: V4 and VL (vision-language) variants
   if (p === 'deepseek') return /v4|vl/.test(m);
+
   // Alibaba Qwen: Qwen 3.x Plus and VL variants
-  if (p === 'alibaba') return /qwen/.test(m) && /plus|vl|3\./.test(m);
-  // 9Router: proxy - check model prefix to determine underlying model
+  if (p === 'alibaba') return /vl|vision/.test(m) || (/qwen/.test(m) && /plus|vl|3\./.test(m));
+
+  // 9Router & 9Router-Public:
+  // cc/ = Claude (all support vision)
+  // cx/ = OpenAI models (excluding o1-mini / o3-mini)
+  // direct models containing gpt-4o, gpt-5, claude, gemini, vision, vl
   if (p === '9router' || p === '9router-public') {
-    const m2 = model.toLowerCase();
-    if (m2.startsWith('cc/')) return true;                          // cc/ = Claude (all support vision)
-    if (m2.startsWith('cx/')) return /gpt-4o|gpt-4-turbo|gpt-4\.1|gpt-5|o[134]/.test(m2); // cx/ = OpenAI
-    if (m2.startsWith('qd/')) return false;                         // qd/ = unknown, skip
-    return false;
+    if (/o1-mini|o3-mini/.test(m)) return false;
+    if (m.startsWith('cc/')) return true;
+    if (m.startsWith('cx/')) return /gpt-5|gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|o[14]/.test(m);
+    if (m.startsWith('qd/')) return false;
+    return /gpt-4o|gpt-5|claude|gemini|vision|vl/.test(m);
   }
+
   // Moonshot: vision not exposed via API input
   return false;
+}
+
+export interface ParsedImageData {
+  mimeType: string;
+  base64: string;
+  dataUrl: string;
+}
+
+export function parseImageData(input: string): ParsedImageData {
+  let str = (input || '').trim();
+  let detectedMime = '';
+
+  // Handle data URL prefix (and guard against duplicate/nested prefixes)
+  while (/^data:[^;]+;base64,/i.test(str)) {
+    const match = str.match(/^data:([^;]+);base64,(.*)$/is);
+    if (!match) break;
+    if (!detectedMime) {
+      detectedMime = match[1].toLowerCase().trim();
+    }
+    str = match[2].trim();
+  }
+
+  const base64 = str.replace(/\s+/g, '');
+
+  if (detectedMime === 'image/jpg') {
+    detectedMime = 'image/jpeg';
+  }
+
+  // Detect mimeType from magic bytes or default to image/png
+  let mimeType = detectedMime;
+  if (base64.startsWith('iVBORw0K')) {
+    mimeType = 'image/png';
+  } else if (base64.startsWith('/9j/')) {
+    mimeType = 'image/jpeg';
+  } else if (base64.startsWith('R0lGOD')) {
+    mimeType = 'image/gif';
+  } else if (base64.startsWith('UklGR')) {
+    mimeType = 'image/webp';
+  } else if (!mimeType || !mimeType.startsWith('image/')) {
+    mimeType = 'image/png';
+  }
+
+  const dataUrl = `data:${mimeType};base64,${base64}`;
+  return { mimeType, base64, dataUrl };
 }
 
 export interface UsageOut {
@@ -76,8 +135,13 @@ export async function callVisionLLM(
   const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
   if (!effectiveKey && p !== '9router-public') throw new Error(`API key for provider ${p} is empty`);
 
+  const { mimeType, base64, dataUrl } = parseImageData(imageBase64);
+
   // Anthropic
   if (p === 'anthropic') {
+    const mediaType = (['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(mimeType)
+      ? mimeType
+      : 'image/png') as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
     const payload = {
       model,
       max_tokens: maxTokens,
@@ -85,7 +149,7 @@ export async function callVisionLLM(
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: imageBase64 } },
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: textPrompt },
         ],
       }],
@@ -109,7 +173,7 @@ export async function callVisionLLM(
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${resolvedModel}:generateContent?key=${effectiveKey}`;
     const payload = {
       contents: [{ parts: [
-        { inlineData: { mimeType: 'image/png', data: imageBase64 } },
+        { inlineData: { mimeType, data: base64 } },
         { text: `${systemPrompt}\n\n${textPrompt}` },
       ]}],
       generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
@@ -122,23 +186,50 @@ export async function callVisionLLM(
     return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
 
-  // OpenAI compatible (openai, 9router, 9router-public)
+  // OpenAI compatible (openai, groq, alibaba, 9router, 9router-public, deepseek)
   let baseURL = 'https://api.openai.com/v1/chat/completions';
-  if (p === '9router') baseURL = 'http://127.0.0.1:20128/v1/chat/completions';
-  if (p === '9router-public') baseURL = `${(publicBaseUrl || '').replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/chat/completions`;
+  switch (p) {
+    case 'openai':
+      baseURL = 'https://api.openai.com/v1/chat/completions';
+      break;
+    case 'groq':
+      baseURL = 'https://api.groq.com/openai/v1/chat/completions';
+      break;
+    case 'alibaba':
+      baseURL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
+      break;
+    case '9router':
+      baseURL = 'http://127.0.0.1:20128/v1/chat/completions';
+      break;
+    case '9router-public':
+      baseURL = `${(publicBaseUrl || '').replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/chat/completions`;
+      if (baseURL === '/v1/chat/completions') throw new Error('9Router public URL is not configured');
+      break;
+    case 'deepseek':
+      baseURL = 'https://api.deepseek.com/v1/chat/completions';
+      break;
+    default:
+      throw new Error(`Unsupported provider for vision: ${provider}`);
+  }
 
+  const isReasoning = p === 'openai' && /^o[14]/.test(model.toLowerCase());
   const payload: any = {
     model,
-    max_tokens: maxTokens,
-    temperature: 0.3,
     messages: [
       { role: 'system', content: systemPrompt },
       { role: 'user', content: [
-        { type: 'image_url', image_url: { url: `data:image/png;base64,${imageBase64}`, detail: 'high' } },
+        { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
         { type: 'text', text: textPrompt },
       ]},
     ],
   };
+  if (isReasoning) {
+    payload.max_completion_tokens = maxTokens;
+  } else {
+    payload.max_tokens = maxTokens;
+    payload.temperature = 0.3;
+  }
+
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (effectiveKey) headers.Authorization = `Bearer ${effectiveKey}`;
   const response = await providerFetch(baseURL, { method: 'POST', headers, body: JSON.stringify(payload) });

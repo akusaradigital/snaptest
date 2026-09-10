@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { get9RouterPublicConfig, getAiRequestPayload, getApiKey } from "@/lib/keys";
+import { getEffectiveAiRules, rememberAiRule } from "@/lib/aiMemory";
 import toast from "react-hot-toast";
 import TicketChatBubble from "@/components/TicketChatBubble";
 import {
@@ -412,6 +413,7 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
       setImageBase64(result);
     };
     reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -536,6 +538,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...result,
+          label: result.jira_label || result.label || "Development",
           auth_type: config.auth_type,
           access_token: config.access_token,
           cloud_id: config.cloud_id,
@@ -564,7 +567,15 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           if (s.id !== activeSessionId) return s;
           const nextMessages = s.messages.map(m => {
             if (m.role !== "assistant" || !m.ticket_result || m.ticket_result !== result) return m;
-            return { ...m, ticket_result: { ...m.ticket_result, jira_key: data.issue_key, jira_url: data.issue_url } };
+            return {
+              ...m,
+              ticket_result: {
+                ...m.ticket_result,
+                jira_key: data.issue_key,
+                jira_url: data.issue_url,
+                jira_label: result.jira_label || result.label || "Development",
+              },
+            };
           });
           return { ...s, messages: nextMessages };
         });
@@ -765,11 +776,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         image_base64: m.image_base64,
       }));
 
-      let customRules = "";
-      try {
-        const snapSettings = JSON.parse(localStorage.getItem("snaptest_settings") || "{}");
-        customRules = snapSettings.ticketCustomPrompt || "";
-      } catch {}
+      const customRules = getEffectiveAiRules("ticket");
 
       const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch("/api/ticket/generate", {
@@ -784,6 +791,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to generate ticket");
+
+      if (data.remember_rule) {
+        const lastMsg = messagesForRequest[messagesForRequest.length - 1];
+        const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(lastMsg?.content || "");
+        rememberAiRule(data.remember_rule, isGlobal ? "global" : "ticket");
+        toast.success(`🧠 Format/aturan baru disimpan: "${data.remember_rule.slice(0, 60)}..."`, { duration: 5000 });
+      }
 
       const ticketResult = toTicketResult(data);
       const isActualTicket = Boolean(

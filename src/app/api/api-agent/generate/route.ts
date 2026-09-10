@@ -12,6 +12,7 @@ export async function POST(req: Request) {
     const {
       input,
       input_type,
+      custom_rules,
       ai_provider,
       ai_model,
       api_key,

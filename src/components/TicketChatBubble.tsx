@@ -116,6 +116,7 @@ export default function TicketChatBubble({
       component: msg.ticket_result?.component || "",
       assignee_id: msg.ticket_result?.assignee_id || "",
       assignee_name: msg.ticket_result?.assignee_name || "",
+      jira_label: msg.ticket_result?.jira_label || "Development",
       current_behavior: stripStars(msg.ticket_result?.current_behavior),
       expected_result: stripStars(msg.ticket_result?.expected_result),
       actual_result: stripStars(msg.ticket_result?.actual_result),
@@ -151,6 +152,8 @@ export default function TicketChatBubble({
             evidence: draft.evidence,
             priority: msg.ticket_result?.priority,
             assignee_id: draft.assignee_id,
+            jira_label: draft.jira_label || "Development",
+            label: draft.jira_label || "Development",
           }),
         });
         const data = await res.json();
@@ -188,6 +191,7 @@ export default function TicketChatBubble({
     if (t.issue_type) lines.push(`**Issue Type:** ${t.issue_type}`);
     if (t.title) lines.push(`**Title:** ${stripStars(t.title)}`);
     if (t.component) lines.push(`**Component:** ${t.component}`);
+    if (t.jira_label) lines.push(`**Environment / Label:** ${t.jira_label}`);
     if (t.description) lines.push(`\n**Description:**\n${stripStars(t.description)}`);
     if (t.current_behavior) lines.push(`\n**Current Behavior:**\n${stripStars(t.current_behavior)}`);
     if (t.expected_result) lines.push(`\n**Expected Result:**\n${stripStars(t.expected_result)}`);
@@ -368,7 +372,10 @@ export default function TicketChatBubble({
   })();
 
   const handlePushClick = () => {
-    if (!ticket?.assignee_id && jiraConfigured) {
+    if (ticket && jiraConfigured) {
+      if (!ticket.jira_label) {
+        ticket.jira_label = "Development";
+      }
       setShowUnassignedWarningModal(true);
     } else if (ticket) {
       onPushToJira?.(ticket);
@@ -482,6 +489,32 @@ export default function TicketChatBubble({
                   </select>
                 </div>
               )}
+
+              {jiraConfigured && (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Env:</span>
+                  {!readOnly ? (
+                    <select
+                      value={ticket.jira_label || "Development"}
+                      onChange={(e) => {
+                        onUpdateTicket?.(msg.id, {
+                          jira_label: e.target.value,
+                        });
+                        toast.success(`Env label set to ${e.target.value}`);
+                      }}
+                      className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="Development">🏷️ Development</option>
+                      <option value="UAT">🏷️ UAT</option>
+                      <option value="Production">🏷️ Production</option>
+                    </select>
+                  ) : (
+                    <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                      🏷️ {ticket.jira_label || "Development"}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Timeline Tracking Status & Compact View Toggle */}
@@ -565,7 +598,7 @@ export default function TicketChatBubble({
                   className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                 />
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <label className="block">
                   <span className="text-xs font-bold text-slate-500">Component / Module</span>
                   <input
@@ -597,6 +630,21 @@ export default function TicketChatBubble({
                           {user.displayName} {user.emailAddress ? `(${user.emailAddress})` : ""}
                         </option>
                       ))}
+                    </select>
+                  </label>
+                )}
+
+                {jiraConfigured && (
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500">Environment / Label</span>
+                    <select
+                      value={draft.jira_label || "Development"}
+                      onChange={(e) => setDraft({ ...draft, jira_label: e.target.value })}
+                      className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="Development">🏷️ Development</option>
+                      <option value="UAT">🏷️ UAT</option>
+                      <option value="Production">🏷️ Production</option>
                     </select>
                   </label>
                 )}
@@ -1117,25 +1165,26 @@ export default function TicketChatBubble({
         </div>
       )}
 
-      {/* Unassigned Confirmation Warning Modal (Feature 4) */}
+      {/* Pre-Push Confirmation Modal */}
       {showUnassignedWarningModal && ticket && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-600 shrink-0">
+              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 shrink-0">
                 <AlertCircle className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push as Unassigned?</h3>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push to Jira Confirmation</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  This issue does not have an Assignee selected yet.
+                  Confirm assignee and environment label before uploading to Jira.
                 </p>
               </div>
             </div>
 
+            {/* Option 1: Assignee */}
             {jiraMembers && jiraMembers.length > 0 && (
               <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Assignee now (optional):</span>
+                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Assignee (optional):</span>
                 <select
                   value={ticket.assignee_id || ""}
                   onChange={(e) => {
@@ -1157,6 +1206,24 @@ export default function TicketChatBubble({
               </div>
             )}
 
+            {/* Option 2: Environment / Label */}
+            <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Environment Label:</span>
+              <select
+                value={ticket.jira_label || "Development"}
+                onChange={(e) => {
+                  onUpdateTicket?.(msg.id, {
+                    jira_label: e.target.value,
+                  });
+                }}
+                className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="Development">🏷️ Development</option>
+                <option value="UAT">🏷️ UAT</option>
+                <option value="Production">🏷️ Production</option>
+              </select>
+            </div>
+
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -1169,6 +1236,9 @@ export default function TicketChatBubble({
                 type="button"
                 onClick={() => {
                   setShowUnassignedWarningModal(false);
+                  if (!ticket.jira_label) {
+                    ticket.jira_label = "Development";
+                  }
                   onPushToJira?.(ticket);
                 }}
                 className="btn-primary text-xs"
