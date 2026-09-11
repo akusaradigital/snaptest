@@ -1,8 +1,8 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText, RotateCcw, Send } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
 
 const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
@@ -32,6 +32,52 @@ const parseEvidenceUrls = (raw?: string) => {
   return clean ? [clean] : [];
 };
 
+const removeStepsFromText = (text?: string | null): string => {
+  if (!text) return "";
+  const pattern = /(?:\n\s*)?(?:\*?\s*(?:Langkah-langkah\s+Reproduksi|Steps?\s+to\s+Reproduce)[^:\n]*:?)(?:[\s\S]*?)(?=(?:\n\s*\*?\s*(?:Catatan\s+Teknis|Technical\s+Notes|Environment|Catatan|Hasil|Expected|Actual)[\s\S]*:)|$)/i;
+  const replaced = text.replace(pattern, "").trim();
+  return replaced.replace(/\n{3,}/g, "\n\n");
+};
+
+function AutoResizeTextarea({
+  value,
+  onChange,
+  className = "",
+  placeholder = "",
+  onKeyDown,
+}: {
+  value?: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  className?: string;
+  placeholder?: string;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const adjust = () => {
+      el.style.height = "auto";
+      el.style.height = `${Math.max(el.scrollHeight, 44)}px`;
+    };
+    adjust();
+    window.addEventListener("resize", adjust);
+    return () => window.removeEventListener("resize", adjust);
+  }, [value]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={value || ""}
+      onChange={onChange}
+      onKeyDown={onKeyDown}
+      placeholder={placeholder}
+      className={`w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none overflow-hidden resize-none leading-relaxed ${className}`}
+    />
+  );
+}
+
 export default function TicketChatBubble({
   msg,
   onPushToJira,
@@ -49,6 +95,10 @@ export default function TicketChatBubble({
   allSessions = [],
   currentSessionId,
   onSelectSession,
+  onEditUserMessage,
+  onResendUserMessage,
+  isRegenerating = false,
+  isLoading = false,
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
@@ -66,6 +116,10 @@ export default function TicketChatBubble({
   allSessions?: Array<{ id: string; title: string; messages: ChatMessage[] }>;
   currentSessionId?: string | null;
   onSelectSession?: (sessionId: string) => void;
+  onEditUserMessage?: (messageId: string, newContent: string) => void;
+  onResendUserMessage?: (messageId: string) => void;
+  isRegenerating?: boolean;
+  isLoading?: boolean;
 }) {
   const [copiedAll, setCopiedAll] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -79,6 +133,15 @@ export default function TicketChatBubble({
   const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
   const [syncToJira, setSyncToJira] = useState(true);
   const [isSyncingJira, setIsSyncingJira] = useState(false);
+
+  // ChatGPT-style User Message Edit & Resend states
+  const [isEditingUserMsg, setIsEditingUserMsg] = useState(false);
+  const [userMsgDraft, setUserMsgDraft] = useState(msg.content);
+  const [copiedUserMsg, setCopiedUserMsg] = useState(false);
+
+  useEffect(() => {
+    setUserMsgDraft(msg.content);
+  }, [msg.content]);
 
   const handleSyncJiraStatus = async (issueKey: string) => {
     setSyncingStatus(true);
@@ -334,11 +397,8 @@ export default function TicketChatBubble({
   const hasTicket = Boolean(
     !isUser &&
     ticket &&
-    (ticket.has_ticket_data !== false ||
-     ticket.title ||
-     ticket.description ||
-     ticket.expected_result ||
-     ticket.issue_type)
+    ticket.has_ticket_data === true &&
+    (ticket.title || ticket.description)
   );
 
   const isPushed = Boolean(ticket?.jira_key || ticket?.aksora_pushed);
@@ -385,7 +445,7 @@ export default function TicketChatBubble({
   return (
     <div className={`p-4 rounded-2xl text-sm ${
       isUser
-        ? "bg-slate-900 text-white rounded-br-none shadow-sm dark:bg-slate-700 dark:text-slate-100"
+        ? "bg-slate-900 text-white rounded-br-none shadow-sm dark:bg-slate-700 dark:text-slate-100 min-w-[260px]"
         : "bg-white dark:bg-slate-800 border border-slate-200/90 dark:border-slate-700 text-slate-800 dark:text-slate-100 rounded-bl-none shadow-sm font-sans"
     }`}>
       {msg.image_preview && (
@@ -650,22 +710,36 @@ export default function TicketChatBubble({
                 )}
               </div>
               <label className="block">
-                <span className="text-xs font-bold text-slate-500">Description</span>
-                <textarea
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-500">Description</span>
+                  {/langkah|step/i.test(draft.description || "") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cleaned = removeStepsFromText(draft.description);
+                        setDraft({ ...draft, description: cleaned });
+                        toast.success("Langkah-langkah reproduksi dihapus dari draf!");
+                      }}
+                      className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-1.5 py-0.5 rounded transition flex items-center gap-1"
+                      title="Hapus bagian Langkah-langkah Reproduksi dari draf"
+                    >
+                      ✕ Hapus Steps
+                    </button>
+                  )}
+                </div>
+                <AutoResizeTextarea
                   value={draft.description}
                   onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                  rows={3}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Ticket description or reproduction steps..."
                 />
               </label>
               {draft.issue_type === "Improvement" && (
                 <label className="block">
                   <span className="text-xs font-bold text-slate-500">Current Behavior</span>
-                  <textarea
+                  <AutoResizeTextarea
                     value={draft.current_behavior}
                     onChange={(e) => setDraft({ ...draft, current_behavior: e.target.value })}
-                    rows={2}
-                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Current behavior before improvement..."
                   />
                 </label>
               )}
@@ -673,21 +747,19 @@ export default function TicketChatBubble({
                 <span className="text-xs font-bold text-slate-500">
                   {draft.issue_type === "Improvement" ? "Expected / Proposed Result" : "Expected Result"}
                 </span>
-                <textarea
+                <AutoResizeTextarea
                   value={draft.expected_result}
                   onChange={(e) => setDraft({ ...draft, expected_result: e.target.value })}
-                  rows={2}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Expected or proposed result..."
                 />
               </label>
               {draft.issue_type === "Bug" && (
                 <label className="block">
                   <span className="text-xs font-bold text-slate-500">Actual Result</span>
-                  <textarea
+                  <AutoResizeTextarea
                     value={draft.actual_result}
                     onChange={(e) => setDraft({ ...draft, actual_result: e.target.value })}
-                    rows={2}
-                    className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    placeholder="Actual error or behavior observed..."
                   />
                 </label>
               )}
@@ -780,7 +852,23 @@ export default function TicketChatBubble({
 
           {ticket.description && (
             <div>
-              <p className="font-bold mb-1">Description:</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="font-bold">Description:</p>
+                {!readOnly && onUpdateTicket && /langkah|step/i.test(ticket.description) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cleaned = removeStepsFromText(ticket.description);
+                      onUpdateTicket(msg.id, { description: cleaned });
+                      toast.success("Langkah-langkah reproduksi dihapus dari tiket!");
+                    }}
+                    className="text-[10px] font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 px-1.5 py-0.5 rounded transition flex items-center gap-1"
+                    title="Hapus bagian Langkah-langkah Reproduksi dari tiket ini"
+                  >
+                    ✕ Hapus Steps
+                  </button>
+                )}
+              </div>
               <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(ticket.description)}</p>
             </div>
           )}
@@ -1118,6 +1206,111 @@ export default function TicketChatBubble({
           </div>
           )}
         </div>
+      ) : isUser ? (
+        isEditingUserMsg ? (
+          <div className="space-y-2.5">
+            <AutoResizeTextarea
+              value={userMsgDraft}
+              onChange={(e) => setUserMsgDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                  e.preventDefault();
+                  if (!userMsgDraft.trim() || isRegenerating || isLoading) return;
+                  setIsEditingUserMsg(false);
+                  onEditUserMessage?.(msg.id, userMsgDraft.trim());
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setIsEditingUserMsg(false);
+                  setUserMsgDraft(msg.content);
+                }
+              }}
+              className="text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-blue-500"
+              placeholder="Edit pesan kamu..."
+            />
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
+              <span className="text-[10px] text-slate-300/80">Ctrl+Enter kirim • Esc batal</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingUserMsg(false);
+                    setUserMsgDraft(msg.content);
+                  }}
+                  disabled={isRegenerating || isLoading}
+                  className="px-2.5 py-1 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition disabled:opacity-50"
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!userMsgDraft.trim() || isRegenerating || isLoading) return;
+                    setIsEditingUserMsg(false);
+                    onEditUserMessage?.(msg.id, userMsgDraft.trim());
+                  }}
+                  disabled={!userMsgDraft.trim() || isRegenerating || isLoading}
+                  className="px-3 py-1 rounded-lg text-xs font-semibold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                >
+                  {isRegenerating ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Send className="w-3 h-3" />
+                  )}
+                  <span>Simpan & Kirim</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+
+            {/* ChatGPT-style Action Bar on User Message */}
+            <div className="flex items-center justify-end gap-1.5 pt-2 mt-2 border-t border-white/10 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(msg.content);
+                  setCopiedUserMsg(true);
+                  setTimeout(() => setCopiedUserMsg(false), 2000);
+                }}
+                className="p-1 rounded-md text-slate-300 hover:text-white hover:bg-white/10 transition"
+                title="Salin teks pesan"
+              >
+                {copiedUserMsg ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              </button>
+
+              {onEditUserMessage && !readOnly && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMsgDraft(msg.content);
+                    setIsEditingUserMsg(true);
+                  }}
+                  disabled={isRegenerating || isLoading}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/10 transition disabled:opacity-50"
+                  title="Edit pesan ini & AI akan respons ulang"
+                >
+                  <Pencil className="w-3 h-3" />
+                  <span>Edit</span>
+                </button>
+              )}
+
+              {onResendUserMessage && !readOnly && (
+                <button
+                  type="button"
+                  onClick={() => onResendUserMessage(msg.id)}
+                  disabled={isRegenerating || isLoading}
+                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium text-slate-300 hover:text-white hover:bg-white/10 transition disabled:opacity-50"
+                  title="Kirim ulang pesan ini & AI akan respons ulang"
+                >
+                  <RotateCcw className={`w-3 h-3 ${isRegenerating ? "animate-spin" : ""}`} />
+                  <span>Kirim Ulang</span>
+                </button>
+              )}
+            </div>
+          </div>
+        )
       ) : (
         <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
       )}

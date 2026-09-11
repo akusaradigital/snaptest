@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
-import { getEffectiveAiRules } from '@/lib/aiMemory';
+import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
 
 interface PlannerPageProps {
@@ -217,10 +217,21 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   );
 
   const runGenerate = async (text: string, clear: () => void) => {
-    if (!text.trim()) {
+    const trimmed = text.trim();
+    if (!trimmed) {
       toast.error('Please paste some text to analyze');
       return;
     }
+
+    if (/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\b/i.test(trimmed)) {
+      const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(trimmed);
+      const cleanRule = trimmed.replace(/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\s*(ya\s*)?(:|\b)/i, "").trim() || trimmed;
+      rememberAiRule(cleanRule, isGlobal ? "global" : "planner");
+      toast.success(`🧠 Aturan disimpan ke memori Test Planner: "${cleanRule.slice(0, 50)}..."`, { duration: 5000 });
+      clear();
+      return;
+    }
+
     if (!aiProvider || !aiModel) {
       toast.error('Please select an AI provider and model in settings first');
       return;

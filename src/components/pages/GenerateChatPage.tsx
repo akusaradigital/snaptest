@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getAiRequestPayload, getApiKey } from "@/lib/keys";
-import { getEffectiveAiRules } from "@/lib/aiMemory";
+import { getEffectiveAiRules, rememberAiRule } from "@/lib/aiMemory";
 import { useServerSessions } from "@/lib/useServerSessions";
 import { classifyUnifiedQaIntent, createSseParser, withTestCaseClientIds } from "@/lib/unifiedQaChat.mjs";
 import type { UnifiedQaArtifacts, UnifiedQaIntent, UnifiedQaSession } from "@/types/unifiedQaChat";
@@ -367,20 +367,74 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
     saveSessions(currentSessions, { ...target });
 
+    const currentInputText = inputText.trim();
     setInputText("");
     setUploadedFile(null);
     setIsLoading(true);
 
-    const resolvedUrl =
-      kind === "url" ? ensureProtocol(inputText.trim())
-      : kind === "figma" ? inputText.trim()
-      : "document://input";
+    const updatePlaceholder = (content: string, extra?: Partial<GenMessage>) => {
+      setSessions((prev) =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          return {
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === aiPlaceholder.id ? { ...m, content, ...extra } : m
+            ),
+          };
+        })
+      );
+    };
 
     const aiPayload = getAiRequestPayload(aiProvider, aiModel);
 
+    // Conversational Chat (Chatbase-style)
+    // If not a URL, Figma link, file upload, or explicit test generation request,
+    // handle it as a natural conversational QA turn (questions, memory instructions, greetings).
+    const isExplicitGenerate = intent === "generate" || /^\s*(generate|buatkan|bikin|test|uji|buat)\s+(test|skenario|scenario|kasus|spec|e2e)\b/i.test(currentInputText);
+    const isConversational = !uploadedFile && kind !== "url" && kind !== "figma" && !isExplicitGenerate;
+
+    if (isConversational) {
+      updatePlaceholder("Thinking...", { status: "generating" });
+      try {
+        const chatRes = await fetch("/api/generate/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: currentInputText,
+            custom_rules: getEffectiveAiRules("generator"),
+            active_test_cases: activeResult?.test_cases?.slice(0, 10).map((tc: any) => `${tc.id || tc.number}: ${tc.name || tc.scenario}`).join("\n"),
+            ...aiPayload,
+          }),
+        });
+
+        const chatData = await chatRes.json();
+        if (!chatRes.ok) throw new Error(chatData.detail || "Failed to process chat message");
+
+        if (chatData.remember_rule) {
+          const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(currentInputText);
+          rememberAiRule(chatData.remember_rule, isGlobal ? "global" : "generator");
+          toast.success(`🧠 Aturan baru disimpan: "${chatData.remember_rule.slice(0, 60)}..."`, { duration: 5000 });
+        }
+
+        updatePlaceholder(chatData.reply || "Done.", { status: "complete" });
+      } catch (err: any) {
+        updatePlaceholder(`⚠️ ${err.message || "Failed to get AI response"}`, { status: "error" });
+        toast.error(err.message || "Chat failed");
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
+    const resolvedUrl =
+      kind === "url" ? ensureProtocol(currentInputText)
+      : kind === "figma" ? currentInputText
+      : "document://input";
+
     const body: Record<string, any> = {
       url: resolvedUrl,
-      user_context: kind === "goal" ? inputText.trim() : `Test the ${uploadedFile?.name || inputText.trim()}`,
+      user_context: kind === "goal" ? currentInputText : `Test the ${uploadedFile?.name || currentInputText}`,
       document_title: uploadedFile?.name,
       document_text: uploadedFile?.type === "pdf" ? (uploadedFile.text || "") : undefined,
       document_image_base64: uploadedFile?.type === "image" ? uploadedFile.imageBase64 : undefined,
@@ -419,20 +473,6 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         if (ev.step === "script_complete") updatePlaceholder(`Script ${ev.completed}/${ev.total}`);
         if (ev.step === "complete" && ev.result) resultBox.value = ev.result;
       });
-
-      const updatePlaceholder = (content: string, extra?: Partial<GenMessage>) => {
-        setSessions((prev) =>
-          prev.map((s) => {
-            if (s.id !== sessionId) return s;
-            return {
-              ...s,
-              messages: s.messages.map((m) =>
-                m.id === aiPlaceholder.id ? { ...m, content, ...extra } : m
-              ),
-            };
-          })
-        );
-      };
 
       while (true) {
         const { done, value } = await reader.read();

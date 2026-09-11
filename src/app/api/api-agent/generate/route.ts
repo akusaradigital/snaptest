@@ -38,8 +38,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const systemPrompt =
+    const basePrompt =
       "You are a senior QA Engineer specializing in API Testing. Given the input (cURL, OpenAPI spec, Postman collection, or manual description), generate comprehensive API test suites. For multi-path inputs like OpenAPI specs, generate a suite for each endpoint.\n\nReturn ONLY a valid JSON object with this exact structure:\n{\n  \"suites\": [\n    {\n      \"endpoint\": \"string\",\n      \"method\": \"GET|POST|PUT|DELETE|PATCH\",\n      \"base_url\": \"string\",\n      \"test_cases\": [\n        {\n          \"id\": \"TC-001\",\n          \"name\": \"string\",\n          \"category\": \"Happy Path|Auth|Validation|Error Handling|Edge Case|Security\",\n          \"description\": \"string\",\n          \"request\": {\n            \"headers\": {},\n            \"body\": {},\n            \"params\": {}\n          },\n          \"expected_status\": 200,\n          \"expected_response\": \"string\",\n          \"priority\": \"Critical|High|Medium|Low\"\n        }\n      ],\n      \"postman_collection\": { ... valid Postman Collection v2.1 JSON ... }\n    }\n  ]\n}";
+
+    const systemPrompt = custom_rules
+      ? `${basePrompt}\n\nUSER CUSTOM API TESTING RULES & GUIDELINES:\n${custom_rules}`
+      : basePrompt;
 
     const userPrompt = `Input Type: ${input_type}\n\nInput:\n${input}`;
 

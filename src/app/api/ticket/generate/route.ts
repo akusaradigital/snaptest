@@ -95,16 +95,29 @@ export async function POST(request: Request) {
 Your role is to converse naturally with the QA/Dev engineer to gather information, auto-detect the issue type, ask targeted clarification questions when info is incomplete, and assemble a flawless, professional Jira ticket.
 
 RULES FOR "has_ticket_data":
-1. Set "has_ticket_data": false ONLY if:
+1. Set "has_ticket_data": false if:
    - The user message is just a bare greeting (e.g. "hi", "hello", "halo", "test", "thanks", "p").
-   - The user provided extremely vague input (e.g. just "error", "rusak", "tolong").
-2. Set "has_ticket_data": true whenever the user describes a problem, expected behavior, improvement, or provides a URL/evidence. You MUST extract and fill ALL relevant fields (title, description, issue_type, expected_result, actual_result or current_behavior, acceptance_criteria, evidence). NEVER leave them null when has_ticket_data is true.
+   - The user provided extremely vague input without specific bug/feature details (e.g. just "error", "rusak", "tolong").
+   - The user is ONLY giving instructions, rules, or preferences to remember (e.g. "ingat tidak perlu langkah2 reproduksi", "ingat format ini...", "mulai sekarang jangan sertakan..."), asking a general question, or chatting, WITHOUT reporting or describing an actual software bug, improvement, or feature request, AND no [ACTIVE TICKET DRAFT] exists to edit.
+   - CRITICAL: In all these non-ticket cases, you MUST set "has_ticket_data": false AND set ALL ticket fields (title, description, current_behavior, expected_result, actual_result, acceptance_criteria, evidence) to null! NEVER copy the user's rule, instruction, or prompt text into the ticket fields!
+2. Set "has_ticket_data": true ONLY when:
+   - The user is genuinely reporting, describing, or editing an actual software bug, improvement, feature, or providing bug evidence/error logs.
+   - TICKET ITERATION / EDIT TURNS: If the conversation contains an [ACTIVE TICKET DRAFT] and the user asks to modify, update, remove, or reformat any part of it (e.g. "hapus langkah-langkahnya", "hilangkan steps", "ubah judulnya", "perjelas expected result", "cukup ringkasan masalah"):
+     * Set "has_ticket_data": true.
+     * MODIFY and return the updated ticket based on the existing draft and user's instruction. Keep existing valid fields (title, issue_type, evidence, expected/actual results) unless specifically requested to change.
+   - If the user provides BOTH a bug report/edit AND a memory instruction in the same message, set "has_ticket_data": true for the ticket, and also extract "remember_rule".
 
-PROACTIVE QUESTIONING & AGENT PERSONALITY:
-- If "has_ticket_data" is false: Provide a warm, concise "assistant_reply" (1-2 sentences) asking for details.
-- If "has_ticket_data" is true: Provide a 1-sentence confirmation in "assistant_reply", and populate the complete structured ticket fields.
+CONVERSATIONAL INTELLIGENCE & AGENT PERSONALITY (CHATBASE-STYLE CONTEXTUAL QA AGENT):
+- You are not just a form filler; you are an intelligent, senior QA Lead and Jira Triage Specialist who engages in natural, deeply knowledgeable technical conversation.
+- When "has_ticket_data" is false:
+  1. Technical / QA Question: If the user asks a question about QA practices, Jira workflows, bug triage, severity vs priority, acceptance criteria, or software testing (e.g. "gimana cara buat bug report yang baik?", "apa bedanya severity critical vs high?", "kapan pakai issue type improvement?"): Provide a clear, insightful, well-structured answer with concrete examples in "assistant_reply" using clean Markdown. Then politely offer to help triage or draft a ticket whenever they have one.
+  2. Memory & Rules Instruction: If the user gives a rule/format/guideline to remember (e.g. "ingat tidak perlu langkah2 reproduksi", "ingat format judul selalu [MODULE]"): Acknowledge it warmly in "assistant_reply", confirm that the rule is securely saved to memory, and briefly illustrate how you will apply it to future tickets.
+  3. Greetings & Capability Inquiries: If the user says hello or asks what you can do (e.g. "halo", "kamu bisa bantu apa?"): Warmly introduce your capabilities in TestGen Studio (turning unstructured bug reports, logs, BugSnap/Loom URLs, and screenshots into developer-ready Jira tickets, classifying bugs vs improvements vs features, and remembering custom team rules).
+  4. Vague Hints: If the user gives an extremely brief, vague hint (e.g. "error", "rusak", "tolong"): Ask 2-3 focused clarification questions to help them describe the issue (which page/feature, what action triggered it, what was expected vs observed, error message).
+- When "has_ticket_data" is true:
+  Provide a concise, helpful summary in "assistant_reply" (1-2 sentences) confirming the ticket has been drafted according to all active QA guidelines, and ask if any adjustments are needed before pushing to Jira/Aksora.
 
-- Tone: Professional, helpful, QA-focused.
+- Tone: Professional, articulate, helpful, QA-focused.
 
 TEMPLATE FORMAT RULES (You MUST populate all required fields for the detected type):
 - BUG:
@@ -134,6 +147,12 @@ TEMPLATE FORMAT RULES (You MUST populate all required fields for the detected ty
   - evidence: Exact URL or reference.
 
 STRICT CONTEXT RULES:
+- USER INSTRUCTIONS & CUSTOM RULES VETO OVERRIDE (HIGHEST PRIORITY):
+  * ANY instruction given by the user in chat (e.g. "hapus langkah-langkahnya", "tanpa step", "hilangkan langkah reproduksi", "format ringkas", "hanya ringkasan masalah") or in USER CUSTOM TICKET RULES & GUIDELINES has ABSOLUTE VETO POWER over any default formatting rule below.
+  * If the user or custom rules specify omitting steps to reproduce (e.g. "tanpa langkah reproduksi", "tidak perlu langkah2 reproduksi", "hapus step", "no steps"): You MUST NOT include "Langkah-langkah Reproduksi" or numbered action steps in "description". Provide ONLY the problem summary and technical notes.
+  * If an [ACTIVE TICKET DRAFT] is present in history and the user asks to remove steps (e.g. "hapus langkah-langkahnya"): Immediately strip the steps from the existing description, preserve the rest of the ticket (title, issue_type, evidence, expected/actual results), and output the updated ticket.
+  * Never force or defend default template sections when the user or custom rules requested to omit or format them differently.
+
 - LANGUAGE & DEVELOPER-FRIENDLY INDONESIAN BUG REPORT RULES:
   Write all generated field contents (title, description, current_behavior, expected_result, actual_result, acceptance_criteria) AND "assistant_reply" in clear, professional language, matching the language the user is writing in (e.g. reply in Indonesian if the user writes in Indonesian). If the user explicitly asks you to use a specific language going forward (e.g. "use English from now on", "pakai bahasa Indonesia ya"), follow that instruction for the rest of this conversation.
   WHEN WRITING IN INDONESIAN (STANDARD SOFTWARE ENGINEERING & QA IN INDONESIA):
@@ -143,12 +162,13 @@ STRICT CONTEXT RULES:
      - Pola: "[Nama Modul / Fitur] - [Kendala spesifik & kondisi pemicu]"
      - Contoh: "[Checkout] - Tombol Bayar Sekarang tidak merespons setelah memilih metode QRIS"
   4. Format Deskripsi (description):
-     - Wajib terstruktur rapi dengan format:
+     - Format default bila tidak ada instruksi sebaliknya:
        * Ringkasan Masalah: 1-2 kalimat ringkas menjelaskan kendala dan dampaknya.
        * Langkah-langkah Reproduksi (Steps to Reproduce):
          1. Buka halaman / URL ...
          2. Lakukan aksi ...
          3. Amati kendala yang muncul.
+         (PENTING: JANGAN cantumkan bagian Langkah-langkah Reproduksi ini jika user atau aturan meminta 'tanpa langkah', 'tidak perlu steps', atau meminta menghapusnya!)
        * Catatan Teknis / Lingkungan (bila relevan): endpoint terkait, tipe request, browser/device, atau pesan error console/network.
   5. Hasil yang Diharapkan (expected_result):
      - Jelaskan perilaku sistem yang semestinya terjadi secara spesifik menurut kebutuhan bisnis/teknis yang benar.
@@ -160,10 +180,11 @@ STRICT CONTEXT RULES:
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
 - REMEMBER & MEMORY INSTRUCTIONS:
-  If the user explicitly asks you to remember, save, or retain a rule, format, template preference, or guideline for future sessions (e.g. phrases like "ingat format ini", "ingat aturan ini", "remember this rule/format", "ingat ya formatnya...", "mulai sekarang formatnya...", "ingat seterusnya..."):
-  * Extract the core rule or preference clearly, concisely, and imperatively (e.g. "Format judul bug report wajib: [Nama Modul] - Ringkasan masalah, sertakan Langkah Reproduksi berurutan").
+  If the user explicitly asks you to remember, save, or retain a rule, format, template preference, or guideline for future sessions (e.g. phrases like "ingat format ini", "ingat aturan ini", "remember this rule/format", "ingat ya formatnya...", "mulai sekarang formatnya...", "ingat seterusnya...", "ingat tidak perlu..."):
+  * Extract the core rule or preference clearly, concisely, and imperatively (e.g. "Jangan menyertakan langkah-langkah reproduksi di deskripsi tiket").
   * Put this extracted instruction into the "remember_rule" field of the JSON output.
   * In "assistant_reply", warmly confirm that you have saved and remembered this rule for future sessions.
+  * CRITICAL: If the user is ONLY providing a rule/instruction/preference (and NOT reporting a new bug or asking to edit an existing ticket), set "has_ticket_data": false, and leave title, description, current_behavior, expected_result, actual_result, acceptance_criteria, and evidence as null! DO NOT generate a ticket from the memory instruction itself!
   * If the user does not request to remember anything, set "remember_rule": null.
 ${custom_rules ? `\nUSER CUSTOM TICKET RULES & GUIDELINES:\n${custom_rules}\n` : ''}
 
@@ -276,16 +297,42 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       : [];
     const urlInPrompt = promptUrls.length > 0 ? promptUrls.join('\n') : null;
 
-    if (!cleanTitle && (urlInPrompt || userContent.length > 20)) {
-      const firstLine = userContent.split('\n').filter((l: string) => !l.startsWith('http'))[0] || userContent;
-      cleanTitle = firstLine.substring(0, 60).trim();
-    }
-    if (!cleanDesc && userContent.length > 10) {
-      cleanDesc = userContent.trim();
+    // Detect if this turn is primarily a memory instruction, rule, or preference setting
+    const isMemoryPrompt = Boolean(
+      parsed.remember_rule ||
+      /^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\b/i.test(userContent.trim())
+    );
+
+    // Detect if the generated title or description is merely echoing the user's memory instruction
+    const isInstructionEcho = cleanTitle && (
+      cleanTitle.toLowerCase().trim() === userContent.toLowerCase().trim() ||
+      /^\s*(ingat|remember|catat|mulai sekarang)\b/i.test(cleanTitle) ||
+      (parsed.remember_rule && cleanTitle.toLowerCase().includes(String(parsed.remember_rule).toLowerCase().slice(0, 15)))
+    );
+
+    const isPureInstruction = isMemoryPrompt && (parsed.has_ticket_data === false || isInstructionEcho) && !latestMessageHasImage && urlsInLastMsg.length === 0;
+
+    if (isPureInstruction) {
+      cleanTitle = '';
+      cleanDesc = '';
+    } else {
+      // Only fallback if the LLM flagged ticket data or user provided fresh evidence in THIS message
+      if (!cleanTitle && (parsed.has_ticket_data === true || urlsInLastMsg.length > 0 || latestMessageHasImage)) {
+        const firstLine = userContent.split('\n').filter((l: string) => !l.startsWith('http'))[0] || userContent;
+        if (firstLine.length > 3 && !/^\s*(ingat|remember|catat)\b/i.test(firstLine)) {
+          cleanTitle = firstLine.substring(0, 60).trim();
+        }
+      }
+      if (!cleanDesc && (parsed.has_ticket_data === true || urlsInLastMsg.length > 0 || latestMessageHasImage)) {
+        if (!/^\s*(ingat|remember|catat)\b/i.test(userContent)) {
+          cleanDesc = userContent.trim();
+        }
+      }
     }
 
     const hasTicketData = Boolean(
-      (parsed.has_ticket_data === true || !!urlInPrompt || userContent.length > 30 || latestMessageHasImage) &&
+      !isPureInstruction &&
+      (parsed.has_ticket_data === true || (urlsInLastMsg.length > 0 && cleanDesc.length > 10) || latestMessageHasImage) &&
       cleanTitle.length > 3 &&
       !isPlaceholder(cleanTitle) &&
       cleanDesc.length > 5 &&
@@ -319,7 +366,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       if (selectedFields.includes('description') && cleanDesc) markdownLines.push(`\n**Description:**\n${cleanDesc}`);
 
       const currentBehavior = parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null);
-      const expectedResult = parsed.expected_result || (type === 'Improvement' || type === 'Bug' ? userContent : null);
+      const expectedResult = parsed.expected_result ? String(parsed.expected_result).replace(/\*\*/g, '').trim() : null;
 
       if (selectedFields.includes('current_behavior') && currentBehavior && type === 'Improvement') {
         markdownLines.push(`\n**Current Behavior:**\n${String(currentBehavior).replace(/\*\*/g, '')}`);
@@ -352,8 +399,8 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
       title: hasTicketData ? cleanTitle : null,
       description: hasTicketData ? cleanDesc : null,
       current_behavior: hasTicketData ? (parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null)) : null,
-      expected_result: hasTicketData ? (parsed.expected_result || (type === 'Improvement' || type === 'Bug' ? userContent : null)) : null,
-      actual_result: hasTicketData ? (parsed.actual_result || null) : null,
+      expected_result: hasTicketData ? (parsed.expected_result ? String(parsed.expected_result).replace(/\*\*/g, '').trim() : null) : null,
+      actual_result: hasTicketData ? (parsed.actual_result ? String(parsed.actual_result).replace(/\*\*/g, '').trim() : null) : null,
       acceptance_criteria: hasTicketData ? (parsed.acceptance_criteria || null) : null,
       evidence: hasTicketData ? resolvedEvidence : null,
       markdown: hasTicketData ? markdownLines.join('\n') : '',

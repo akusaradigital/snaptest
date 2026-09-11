@@ -3,6 +3,8 @@ export interface AiMemorySettings {
   ticketCustomPrompt?: string;
   customPrompt?: string;
   plannerCustomPrompt?: string;
+  dataCustomPrompt?: string;
+  apiCustomPrompt?: string;
 }
 
 export function getStoredAiMemory(): AiMemorySettings {
@@ -29,6 +31,10 @@ export function getEffectiveAiRules(target: "ticket" | "generator" | "planner" |
     parts.push(`[Test Generator Specific Rules]:\n${mem.customPrompt.trim()}`);
   } else if (target === "planner" && mem.plannerCustomPrompt?.trim()) {
     parts.push(`[Test Planner Specific Rules]:\n${mem.plannerCustomPrompt.trim()}`);
+  } else if (target === "data" && mem.dataCustomPrompt?.trim()) {
+    parts.push(`[Data Generator Specific Rules]:\n${mem.dataCustomPrompt.trim()}`);
+  } else if (target === "api" && mem.apiCustomPrompt?.trim()) {
+    parts.push(`[API Agent Specific Rules]:\n${mem.apiCustomPrompt.trim()}`);
   }
 
   return parts.join("\n\n");
@@ -36,7 +42,7 @@ export function getEffectiveAiRules(target: "ticket" | "generator" | "planner" |
 
 export function rememberAiRule(
   rule: string,
-  target: "global" | "ticket" | "generator" | "planner" = "ticket"
+  target: "global" | "ticket" | "generator" | "planner" | "data" | "api" = "ticket"
 ): boolean {
   if (typeof window === "undefined" || !rule.trim()) return false;
   try {
@@ -48,6 +54,8 @@ export function rememberAiRule(
       ticket: "ticketCustomPrompt",
       generator: "customPrompt",
       planner: "plannerCustomPrompt",
+      data: "dataCustomPrompt",
+      api: "apiCustomPrompt",
     };
 
     const targetKey = keyMap[target] || "ticketCustomPrompt";

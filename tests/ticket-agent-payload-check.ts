@@ -41,4 +41,12 @@ const sampleTicket = {
 assert.ok(sampleTicket.issue_type === 'Improvement');
 assert.ok(sampleTicket.acceptance_criteria.length === 2);
 
+// Check TicketChatBubble uses AutoResizeTextarea to eliminate internal scrollbars
+import fs from 'node:fs';
+import path from 'node:path';
+const bubbleSrc = fs.readFileSync(path.join(__dirname, '../src/components/TicketChatBubble.tsx'), 'utf-8');
+assert.ok(bubbleSrc.includes('AutoResizeTextarea'), 'Must define and use AutoResizeTextarea');
+assert.ok(bubbleSrc.includes('overflow-hidden resize-none'), 'Must use overflow-hidden resize-none to prevent inner scrollbars');
+assert.ok(!bubbleSrc.includes('rows={3}'), 'Must not have hardcoded rows={3} causing scrollbars');
+
 console.log('ticket-agent-payload-check passed');

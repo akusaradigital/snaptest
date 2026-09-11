@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Database, Copy, Download, Loader2 } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
-import { getEffectiveAiRules } from '@/lib/aiMemory';
+import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
 
 interface DataGenPageProps {
@@ -21,10 +21,21 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
 
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!prompt.trim()) {
+    const trimmed = prompt.trim();
+    if (!trimmed) {
       toast.error('Please provide a schema or field description');
       return;
     }
+
+    if (/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\b/i.test(trimmed)) {
+      const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(trimmed);
+      const cleanRule = trimmed.replace(/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\s*(ya\s*)?(:|\b)/i, "").trim() || trimmed;
+      rememberAiRule(cleanRule, isGlobal ? "global" : "data");
+      toast.success(`🧠 Aturan disimpan ke memori Data Generator: "${cleanRule.slice(0, 50)}..."`, { duration: 5000 });
+      setPrompt('');
+      return;
+    }
+
     if (!aiProvider || !aiModel) {
       toast.error('Please select an AI provider and model in settings first');
       return;

@@ -3,7 +3,7 @@
 import { useState, useRef } from "react";
 import axios from "axios";
 import { getAiRequestPayload } from "@/lib/keys";
-import { getEffectiveAiRules } from "@/lib/aiMemory";
+import { getEffectiveAiRules, rememberAiRule } from "@/lib/aiMemory";
 import {
   Network, FileJson, FileText, Loader2, Copy,
   CheckCircle2, Download, Paperclip,
@@ -117,7 +117,18 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
 
   const handleGenerate = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (!inputText.trim()) return;
+    const trimmed = inputText.trim();
+    if (!trimmed) return;
+
+    if (/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\b/i.test(trimmed)) {
+      const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(trimmed);
+      const cleanRule = trimmed.replace(/^\s*(ingat|remember|catat|mulai sekarang|jangan lupa)\s*(ya\s*)?(:|\b)/i, "").trim() || trimmed;
+      rememberAiRule(cleanRule, isGlobal ? "global" : "api");
+      toast.success(`🧠 Aturan disimpan ke memori API Agent: "${cleanRule.slice(0, 50)}..."`, { duration: 5000 });
+      setInputText("");
+      return;
+    }
+
     if (!aiProvider || !aiModel) { toast.error("Please select an AI provider and model first"); return; }
 
     setIsLoading(true);

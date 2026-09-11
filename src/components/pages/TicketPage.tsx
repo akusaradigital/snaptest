@@ -91,6 +91,23 @@ export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
   const [renameValue, setRenameValue] = useState("");
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [ticketPreset, setTicketPreset] = useState<"standard" | "compact" | "technical">("standard");
+
+  useEffect(() => {
+    try {
+      const savedPreset = localStorage.getItem("snaptest_ticket_preset") as any;
+      if (savedPreset && ["standard", "compact", "technical"].includes(savedPreset)) {
+        setTicketPreset(savedPreset);
+      }
+    } catch {}
+  }, []);
+
+  const handleSetPreset = (preset: "standard" | "compact" | "technical") => {
+    setTicketPreset(preset);
+    try {
+      localStorage.setItem("snaptest_ticket_preset", preset);
+    } catch {}
+  };
 
   useEffect(() => {
     try {
@@ -770,13 +787,38 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
   ) => {
     setIsLoading(true);
     try {
-      const formattedHistory = messagesForRequest.map((m) => ({
-        role: m.role,
-        content: m.content,
-        image_base64: m.image_base64,
-      }));
+      const formattedHistory = messagesForRequest.map((m) => {
+        if (m.role === "assistant" && m.ticket_result) {
+          const t = m.ticket_result;
+          const ticketSummary = [
+            `[ACTIVE TICKET DRAFT]`,
+            `Issue Type: ${t.issue_type || "Bug"}`,
+            `Title: ${t.title || ""}`,
+            `Description: ${t.description || ""}`,
+            t.current_behavior ? `Current Behavior: ${t.current_behavior}` : "",
+            `Expected Result: ${t.expected_result || ""}`,
+            t.actual_result ? `Actual Result: ${t.actual_result}` : "",
+            t.evidence ? `Evidence: ${t.evidence}` : "",
+          ].filter(Boolean).join("\n");
+          return {
+            role: m.role,
+            content: m.content ? `${m.content}\n\n${ticketSummary}` : ticketSummary,
+            image_base64: m.image_base64,
+          };
+        }
+        return {
+          role: m.role,
+          content: m.content,
+          image_base64: m.image_base64,
+        };
+      });
 
-      const customRules = getEffectiveAiRules("ticket");
+      let customRules = getEffectiveAiRules("ticket");
+      if (ticketPreset === "compact") {
+        customRules = `${customRules}\nSTRICT FORMAT PRESET: Format Ringkas (Tanpa Steps). Deskripsi tiket HANYA berisi ringkasan kendala dan catatan teknis. DILARANG KERAS menyertakan Langkah-langkah Reproduksi (Steps to Reproduce) atau numbered steps.`.trim();
+      } else if (ticketPreset === "technical") {
+        customRules = `${customRules}\nSTRICT FORMAT PRESET: Format Teknis. Fokus pada endpoint/API, status code, payload, respon error, dan detail log/console.`.trim();
+      }
 
       const aiPayload = getAiRequestPayload(aiProvider, aiModel);
       const res = await fetch("/api/ticket/generate", {
@@ -801,11 +843,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
       const ticketResult = toTicketResult(data);
       const isActualTicket = Boolean(
-        ticketResult.title ||
-        ticketResult.description ||
-        ticketResult.expected_result ||
-        ticketResult.actual_result ||
-        ticketResult.has_ticket_data === true
+        ticketResult.has_ticket_data === true &&
+        ticketResult.title &&
+        ticketResult.description
       );
 
       const botMsg: ChatMessage = {
@@ -820,7 +860,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         if (s.id !== currentSessionId) return s;
         // Auto-generate title from first ticket draft or input
         let newTitle = s.title;
-        if (s.title === "New Ticket Chat" && ticketResult.title) {
+        if (s.title === "New Ticket Chat" && isActualTicket && ticketResult.title) {
           newTitle = ticketResult.title.substring(0, 30);
         }
         return {
@@ -941,6 +981,95 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     try {
       await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
       toast.success("Regenerated reply");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleResendUserMessage = async (messageId: string) => {
+    if (!activeSessionId || isLoading || isRegenerating) return;
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (!session || session.messages.length === 0) return;
+
+    const msgs = session.messages;
+    const userMsgIdx = msgs.findIndex((m) => m.id === messageId);
+    if (userMsgIdx === -1 || msgs[userMsgIdx].role !== "user") {
+      toast.error("Message not found");
+      return;
+    }
+
+    const truncatedMessages = msgs.slice(0, userMsgIdx + 1);
+    const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
+    let apiKey = getApiKey(aiProvider);
+    if (aiProvider === "9router-public" && !publicCfg?.url) {
+      toast.error("Please connect 9Router Public URL in Settings first");
+      return;
+    }
+    if (!apiKey && aiProvider !== "9router") {
+      toast.error(`Please set an API key for ${aiProvider} in Settings`);
+      return;
+    }
+
+    setIsRegenerating(true);
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSessionId ? { ...s, messages: truncatedMessages } : s
+    );
+    const target = updatedSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(updatedSessions, target);
+
+    try {
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      toast.success("Pesan dikirim ulang & AI merespons");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleEditUserMessage = async (messageId: string, newContent: string) => {
+    if (!activeSessionId || isLoading || isRegenerating) return;
+    const session = sessions.find((s) => s.id === activeSessionId);
+    if (!session || session.messages.length === 0) return;
+
+    const msgs = session.messages;
+    const userMsgIdx = msgs.findIndex((m) => m.id === messageId);
+    if (userMsgIdx === -1 || msgs[userMsgIdx].role !== "user") {
+      toast.error("Message not found");
+      return;
+    }
+
+    if (!newContent.trim()) {
+      toast.error("Pesan tidak boleh kosong");
+      return;
+    }
+
+    const updatedUserMsg: ChatMessage = {
+      ...msgs[userMsgIdx],
+      content: newContent.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    };
+
+    const truncatedMessages = [...msgs.slice(0, userMsgIdx), updatedUserMsg];
+    const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
+    let apiKey = getApiKey(aiProvider);
+    if (aiProvider === "9router-public" && !publicCfg?.url) {
+      toast.error("Please connect 9Router Public URL in Settings first");
+      return;
+    }
+    if (!apiKey && aiProvider !== "9router") {
+      toast.error(`Please set an API key for ${aiProvider} in Settings`);
+      return;
+    }
+
+    setIsRegenerating(true);
+    const updatedSessions = sessions.map((s) =>
+      s.id === activeSessionId ? { ...s, messages: truncatedMessages } : s
+    );
+    const target = updatedSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(updatedSessions, target);
+
+    try {
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      toast.success("Pesan diperbarui & AI merespons ulang");
     } finally {
       setIsRegenerating(false);
     }
@@ -1218,6 +1347,10 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     allSessions={sessions}
                     currentSessionId={activeSessionId}
                     onSelectSession={handleSelectSession}
+                    onEditUserMessage={handleEditUserMessage}
+                    onResendUserMessage={handleResendUserMessage}
+                    isRegenerating={isRegenerating}
+                    isLoading={isLoading}
                   />
                   {msg.role === "assistant" && idx === messages.length - 1 && !isLoading && (
                     <button
@@ -1258,6 +1391,47 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         {/* Input Dock — pinned above draft */}
         <div className="shrink-0 px-3 pb-3 pt-2">
           <div className="bg-white dark:bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700 p-2.5">
+            {/* Format Presets Bar */}
+            <div className="flex items-center gap-1.5 px-2 pb-2 mb-1.5 border-b border-slate-100 dark:border-slate-700/60 overflow-x-auto">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-0.5">Format:</span>
+              <button
+                type="button"
+                onClick={() => handleSetPreset("standard")}
+                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
+                  ticketPreset === "standard"
+                    ? "bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold"
+                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+                title="Format standar lengkap dengan Langkah-langkah Reproduksi"
+              >
+                📋 Standar (Steps)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetPreset("compact")}
+                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
+                  ticketPreset === "compact"
+                    ? "bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-semibold ring-1 ring-amber-300 dark:ring-amber-700"
+                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+                title="Hanya ringkasan masalah & hasil diharapkan/aktual tanpa langkah reproduksi"
+              >
+                ⚡ Ringkas (Tanpa Steps)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSetPreset("technical")}
+                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
+                  ticketPreset === "technical"
+                    ? "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-semibold"
+                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                }`}
+                title="Fokus endpoint/API, status code, payload & respon error"
+              >
+                🧪 Teknis (API/Logs)
+              </button>
+            </div>
+
             {imagePreview && (
               <div className="mb-2 relative inline-block border rounded-xl overflow-hidden bg-slate-100 max-w-xs">
                 <img src={imagePreview} alt="Screenshot preview" className="max-h-28 object-contain" />
