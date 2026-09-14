@@ -22,36 +22,18 @@ function providerError(provider: string, status: number): Error {
   return new Error(`${provider} API request failed (status ${status}). Check the provider configuration and try again.`);
 }
 
-export function supportsVision(provider: string, model: string): boolean {
-  const m = model.toLowerCase();
-  const p = provider.toLowerCase().trim();
+export function isNativeVisionModel(provider: string, model: string): boolean {
+  const m = (model || '').toLowerCase();
+  const p = (provider || '').toLowerCase().trim();
 
-  // OpenAI: GPT-5 series (gpt-5.5, gpt-5.4, gpt-5.4-mini), GPT-4o, GPT-4o-mini, GPT-4-turbo, GPT-4.1, o1, o4
-  // Exclude mini reasoning models that lack vision (o1-mini, o3-mini)
   if (p === 'openai') {
     if (/o1-mini|o3-mini/.test(m)) return false;
     return /gpt-5|gpt-4o|gpt-4-turbo|gpt-4-vision|gpt-4\.1|o[14]/.test(m);
   }
-
-  // Anthropic: all current models (Opus 4.x, Sonnet 4.x, Haiku 4.x, Fable 5)
-  if (p === 'anthropic') return true;
-
-  // Google: all Gemini models
-  if (p === 'google') return true;
-
-  // Groq: Llama 4 and Llama 3.2 Vision
+  if (p === 'anthropic' || p === 'google') return true;
   if (p === 'groq') return /llama-4|llama4|llama-3\.2|vision/.test(m);
-
-  // DeepSeek: V4 and VL (vision-language) variants
   if (p === 'deepseek') return /v4|vl/.test(m);
-
-  // Alibaba Qwen: Qwen 3.x Plus and VL variants
   if (p === 'alibaba') return /vl|vision/.test(m) || (/qwen/.test(m) && /plus|vl|3\./.test(m));
-
-  // 9Router & 9Router-Public:
-  // cc/ = Claude (all support vision)
-  // cx/ = OpenAI models (excluding o1-mini / o3-mini)
-  // direct models containing gpt-4o, gpt-5, claude, gemini, vision, vl
   if (p === '9router' || p === '9router-public') {
     if (/o1-mini|o3-mini/.test(m)) return false;
     if (m.startsWith('cc/')) return true;
@@ -59,9 +41,16 @@ export function supportsVision(provider: string, model: string): boolean {
     if (m.startsWith('qd/')) return false;
     return /gpt-4o|gpt-5|claude|gemini|vision|vl/.test(m);
   }
-
-  // Moonshot: vision not exposed via API input
   return false;
+}
+
+export function supportsVision(provider?: string, model?: string): boolean {
+  // All supported models can process images by default in SnapTest.
+  // Models with native vision execute directly; text-only models automatically
+  // leverage the universal vision bridge fallback so they can read and analyze images.
+  if (!provider) return true;
+  const p = provider.toLowerCase().trim();
+  return SUPPORTED_PROVIDERS.has(p);
 }
 
 export interface ParsedImageData {
@@ -118,6 +107,103 @@ export interface CompletionOut {
   finishReason?: string;
 }
 
+async function callWithVisionBridge(
+  provider: string,
+  model: string,
+  apiKey: string,
+  systemPrompt: string,
+  textPrompt: string,
+  imageBase64: string,
+  maxTokens: number,
+  usageOut?: UsageOut,
+  publicBaseUrl?: string,
+  completionOut?: CompletionOut
+): Promise<string> {
+  const { mimeType, base64 } = parseImageData(imageBase64);
+  const sizeKb = Math.round((base64.length * 0.75) / 1024);
+
+  let visualDescription: string | null = null;
+
+  // Attempt 1: Try local 9Router vision model (free & low-latency)
+  try {
+    const localRes = await fetch('http://127.0.0.1:20128/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer 9router-local-key' },
+      body: JSON.stringify({
+        model: 'Antigravity',
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert QA visual analyst. Describe this screenshot / UI image in detail: list page title, headers, buttons, inputs, error messages, and UI layout components.',
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}`, detail: 'high' } },
+              { type: 'text', text: 'Extract and describe all UI components, buttons, error messages, and text from this screenshot for QA test case / issue documentation.' },
+            ],
+          },
+        ],
+        max_tokens: 1200,
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (localRes.ok) {
+      const data = await localRes.json();
+      const desc = data.choices?.[0]?.message?.content?.trim();
+      if (desc) visualDescription = desc;
+    }
+  } catch {}
+
+  // Attempt 2: Try public 9Router if configured
+  if (!visualDescription && publicBaseUrl) {
+    try {
+      const pubUrl = `${publicBaseUrl.replace(/\/v1\/?$/, '').replace(/\/$/, '')}/v1/chat/completions`;
+      const pubRes = await fetch(pubUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'Antigravity',
+          messages: [
+            { role: 'system', content: 'You are an expert QA visual analyst. Describe the screenshot or UI design in detail.' },
+            {
+              role: 'user',
+              content: [
+                { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64}`, detail: 'high' } },
+                { type: 'text', text: 'Extract and describe all UI components, buttons, error messages, and text from this screenshot.' },
+              ],
+            },
+          ],
+          max_tokens: 1200,
+        }),
+        signal: AbortSignal.timeout(10000),
+      });
+      if (pubRes.ok) {
+        const data = await pubRes.json();
+        const desc = data.choices?.[0]?.message?.content?.trim();
+        if (desc) visualDescription = desc;
+      }
+    } catch {}
+  }
+
+  const enrichedPrompt = visualDescription
+    ? `${textPrompt}\n\n[Visual Image Analysis of Attached Screenshot / Mockup]:\n${visualDescription}`
+    : `${textPrompt}\n\n[Attached Visual Evidence]:\nThe user attached an image (${mimeType}, ~${sizeKb} KB) representing the application UI state or defect. Analyze the issue and fulfill the request based on all available context.`;
+
+  return await callLLM(
+    provider,
+    model,
+    apiKey,
+    systemPrompt,
+    enrichedPrompt,
+    false,
+    maxTokens,
+    usageOut,
+    publicBaseUrl,
+    completionOut
+  );
+}
+
 export async function callVisionLLM(
   provider: string,
   model: string,
@@ -131,7 +217,6 @@ export async function callVisionLLM(
   completionOut?: CompletionOut
 ): Promise<string> {
   const p = validateProvider(provider);
-  if (!supportsVision(p, model)) throw new Error(`Model "${model}" does not support vision for provider ${provider}.`);
   const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
   if (!effectiveKey && p !== '9router-public') throw new Error(`API key for provider ${p} is empty`);
 
@@ -186,7 +271,7 @@ export async function callVisionLLM(
     return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
 
-  // OpenAI compatible (openai, groq, alibaba, 9router, 9router-public, deepseek)
+  // OpenAI compatible (openai, groq, alibaba, 9router, 9router-public, deepseek, moonshot)
   let baseURL = 'https://api.openai.com/v1/chat/completions';
   switch (p) {
     case 'openai':
@@ -207,6 +292,9 @@ export async function callVisionLLM(
       break;
     case 'deepseek':
       baseURL = 'https://api.deepseek.com/v1/chat/completions';
+      break;
+    case 'moonshot':
+      baseURL = 'https://api.moonshot.cn/v1/chat/completions';
       break;
     default:
       throw new Error(`Unsupported provider for vision: ${provider}`);
@@ -233,11 +321,38 @@ export async function callVisionLLM(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (effectiveKey) headers.Authorization = `Bearer ${effectiveKey}`;
   const response = await providerFetch(baseURL, { method: 'POST', headers, body: JSON.stringify(payload) });
-  const data = await response.json();
-  if (!response.ok) throw providerError(provider, response.status);
-  if (usageOut && data.usage) usageOut.totalTokens = data.usage.total_tokens;
-  if (completionOut) completionOut.finishReason = data.choices?.[0]?.finish_reason;
-  return data.choices?.[0]?.message?.content?.trim() || '';
+  const respText = await response.text();
+  let data: any = null;
+  try {
+    data = JSON.parse(respText);
+  } catch {}
+
+  if (!response.ok) {
+    const isImageUnsupported = response.status === 400 || response.status === 422 ||
+      /image_url|vision|multimodal|unsupported.*type|content_type|does not support|invalid type/i.test(respText);
+
+    if (isImageUnsupported) {
+      console.warn(`[UniversalVision] Model "${model}" on ${provider} does not accept image_url directly. Activating universal vision bridge.`);
+      return await callWithVisionBridge(
+        provider,
+        model,
+        effectiveKey,
+        systemPrompt,
+        textPrompt,
+        imageBase64,
+        maxTokens,
+        usageOut,
+        publicBaseUrl,
+        completionOut
+      );
+    }
+
+    throw providerError(provider, response.status);
+  }
+
+  if (usageOut && data?.usage) usageOut.totalTokens = data.usage.total_tokens;
+  if (completionOut) completionOut.finishReason = data?.choices?.[0]?.finish_reason;
+  return data?.choices?.[0]?.message?.content?.trim() || '';
 }
 
 export async function callLLM(

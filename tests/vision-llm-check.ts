@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { parseImageData, supportsVision } from '../src/app/api/ai/llm';
+import { parseImageData, supportsVision, isNativeVisionModel } from '../src/app/api/ai/llm';
+import { extractUrls } from '../src/app/api/ai/webContext';
 
 // 1. parseImageData checks
 const pngRaw = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -41,8 +42,8 @@ const parsedWhitespace = parseImageData(`\n  data:image/png;base64,  ${pngRaw.sl
 assert.equal(parsedWhitespace.mimeType, 'image/png');
 assert.equal(parsedWhitespace.base64, pngRaw);
 
-// 2. supportsVision checks
-// OpenAI
+// 2. supportsVision checks - All models can process images by default
+// OpenAI (all models supported by default)
 assert.equal(supportsVision('openai', 'gpt-5.5'), true);
 assert.equal(supportsVision('openai', 'gpt-5.4'), true);
 assert.equal(supportsVision('openai', 'gpt-5.4-mini'), true);
@@ -52,34 +53,60 @@ assert.equal(supportsVision('openai', 'gpt-4-turbo'), true);
 assert.equal(supportsVision('openai', 'gpt-4.1'), true);
 assert.equal(supportsVision('openai', 'o1'), true);
 assert.equal(supportsVision('openai', 'o4'), true);
-assert.equal(supportsVision('openai', 'o1-mini'), false);
-assert.equal(supportsVision('openai', 'o3-mini'), false);
-assert.equal(supportsVision('openai', 'gpt-3.5-turbo'), false);
+assert.equal(supportsVision('openai', 'o1-mini'), true);
+assert.equal(supportsVision('openai', 'o3-mini'), true);
+assert.equal(supportsVision('openai', 'gpt-3.5-turbo'), true);
 
-// 9Router & 9Router-Public
+// Anthropic & Google
+assert.equal(supportsVision('anthropic', 'claude-3-5-sonnet-20241022'), true);
+assert.equal(supportsVision('google', 'gemini-2.5-flash'), true);
+
+// 9Router & 9Router-Public (all models supported by default)
 assert.equal(supportsVision('9router', 'cc/claude-3-7-sonnet'), true);
 assert.equal(supportsVision('9router-public', 'cc/claude-3-5-sonnet'), true);
 assert.equal(supportsVision('9router', 'cx/gpt-4o'), true);
 assert.equal(supportsVision('9router', 'cx/gpt-5.4'), true);
 assert.equal(supportsVision('9router', 'cx/o1'), true);
-assert.equal(supportsVision('9router', 'cx/o1-mini'), false);
-assert.equal(supportsVision('9router', 'cx/o3-mini'), false);
+assert.equal(supportsVision('9router', 'cx/o1-mini'), true);
+assert.equal(supportsVision('9router', 'cx/o3-mini'), true);
 assert.equal(supportsVision('9router', 'gpt-4o'), true);
 assert.equal(supportsVision('9router', 'gpt-5.5'), true);
 assert.equal(supportsVision('9router', 'claude-3-5-sonnet'), true);
 assert.equal(supportsVision('9router', 'gemini-2.0-flash'), true);
 assert.equal(supportsVision('9router', 'qwen-vl-max'), true);
 assert.equal(supportsVision('9router', 'llama-3.2-11b-vision-preview'), true);
-assert.equal(supportsVision('9router', 'qd/unsupported'), false);
-assert.equal(supportsVision('9router', 'unsupported-text-model'), false);
+assert.equal(supportsVision('9router', 'qd/deepseek-r1'), true);
+assert.equal(supportsVision('9router', 'custom-text-model'), true);
 
-// Groq
+// Groq, DeepSeek, Moonshot, Alibaba
 assert.equal(supportsVision('groq', 'meta-llama/llama-4-scout-17b-16e-instruct'), true);
 assert.equal(supportsVision('groq', 'llama-3.2-11b-vision-preview'), true);
-assert.equal(supportsVision('groq', 'llama-3.1-8b-instant'), false);
-
-// Alibaba
+assert.equal(supportsVision('groq', 'llama-3.1-8b-instant'), true);
+assert.equal(supportsVision('deepseek', 'deepseek-chat'), true);
+assert.equal(supportsVision('deepseek', 'deepseek-reasoner'), true);
+assert.equal(supportsVision('moonshot', 'kimi-k2.6'), true);
 assert.equal(supportsVision('alibaba', 'qwen-vl-max'), true);
 assert.equal(supportsVision('alibaba', 'qwen3.6-plus'), true);
 
+// Unsupported provider check
+assert.equal(supportsVision('unsupported-provider', 'some-model'), false);
+
+// 3. isNativeVisionModel checks
+assert.equal(isNativeVisionModel('openai', 'gpt-4o'), true);
+assert.equal(isNativeVisionModel('openai', 'o3-mini'), false);
+assert.equal(isNativeVisionModel('anthropic', 'claude-3-5-sonnet'), true);
+assert.equal(isNativeVisionModel('google', 'gemini-2.0-flash'), true);
+assert.equal(isNativeVisionModel('groq', 'llama-3.2-11b-vision-preview'), true);
+assert.equal(isNativeVisionModel('groq', 'llama-3.1-8b-instant'), false);
+
+// 4. extractUrls checks
+const sampleText = 'Check out https://staging.myapp.com/checkout and www.example.org/login, also see (https://test.com/issue/123).';
+const urls = extractUrls(sampleText);
+assert.deepEqual(urls, [
+  'https://staging.myapp.com/checkout',
+  'https://www.example.org/login',
+  'https://test.com/issue/123',
+]);
+
 console.log('vision-llm-check passed');
+

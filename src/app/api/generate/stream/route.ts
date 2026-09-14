@@ -149,13 +149,77 @@ export async function POST(request: Request) {
           const cached = await getCachedPage(url, auth);
           let pageData: PageData;
 
-          if (crawl_mode === 'document') {
-            if (document_image_base64) {
-              if (!supportsVision(p, ai_model || '')) {
-                sendEvent('error', `Model "${ai_model}" does not support Vision. Please use GPT-4o, Claude 3+, or Gemini to process image designs.`);
-                controller.close();
-                return;
+          if (crawl_mode === 'hybrid' || (url && /^https?:\/\//i.test(url) && document_image_base64)) {
+            // Hybrid mode: User provided both a live web URL and an attached design / screenshot image
+            sendEvent('crawling', `Crawling live web page: ${url}...`);
+            let liveElements: DOMElement[] = [];
+            let liveTitle = 'Live Webpage';
+
+            if (cached) {
+              liveElements = cached.elements || [];
+              liveTitle = cached.title || url;
+            } else {
+              try {
+                const livePage = await crawlPage(url, auth, 'static');
+                liveElements = livePage.elements || [];
+                liveTitle = livePage.title || url;
+                await setCachedPage(url, livePage, auth);
+              } catch (err: any) {
+                console.warn('Live page crawl failed in hybrid mode:', err?.message);
               }
+            }
+
+            sendEvent('analyzing', 'AI analyzing attached design mockup / screenshot in context with live page...');
+            const visionUsage = { totalTokens: 0 };
+            const visionSystem = `You are a senior UI/UX QA analyst. Analyze the design mockup / screenshot and extract interactive elements. Return ONLY JSON: {"elements":[{"tag":"button|input|a|select","text_content":"","placeholder":"","css_selector":""}]}`;
+            const visionPrompt = `Analyze this design image in conjunction with the target website (${url}). Identify interactive UI elements (inputs, buttons, dropdowns, links, forms) and return JSON format.`;
+            let visionElements: DOMElement[] = [];
+            try {
+              const visionRaw = await callVisionLLM(p, ai_model || '', apiKey, visionSystem, visionPrompt, document_image_base64, 2048, visionUsage, publicBaseUrl);
+              const jsonMatch = visionRaw.match(/\{[\s\S]*\}/);
+              const parsed = JSON.parse(jsonMatch?.[0] || visionRaw);
+              visionElements = (parsed.elements || []).map((el: any): DOMElement => ({
+                tag: el.tag || 'button',
+                id: el.id || null,
+                name: el.name || null,
+                type: el.type || null,
+                placeholder: el.placeholder || null,
+                aria_label: el.aria_label || null,
+                label_text: null,
+                text_content: (el.text_content || '').substring(0, 40) || null,
+                css_selector: el.css_selector || el.tag || 'button',
+              }));
+            } catch (err: any) {
+              console.warn('Vision extraction failed in hybrid mode:', err?.message);
+            }
+
+            const mergedElements: DOMElement[] = [...liveElements];
+            const seenSelectors = new Set(liveElements.map((e) => `${e.css_selector}::${e.text_content || ''}`));
+            for (const ve of visionElements) {
+              const key = `${ve.css_selector}::${ve.text_content || ''}`;
+              if (!seenSelectors.has(key)) {
+                mergedElements.push(ve);
+                seenSelectors.add(key);
+              }
+            }
+
+            const pageTitle = liveTitle !== 'Untitled Page' && liveTitle !== url
+              ? `${liveTitle} (${document_title || 'Design Mockup'})`
+              : (document_title || 'Live Page & Design Mockup');
+
+            pageData = {
+              title: pageTitle,
+              url,
+              elements: mergedElements.length > 0 ? mergedElements : visionElements,
+            };
+
+            sendEvent('crawled', `Synthesized ${liveElements.length} live elements and ${visionElements.length} design mockup elements`, {
+              elements_found: pageData.elements.length,
+              page_title: pageData.title,
+              from_cache: !!cached,
+            });
+          } else if (crawl_mode === 'document') {
+            if (document_image_base64) {
               sendEvent('analyzing', 'AI analyzing design image / Figma rendering...');
               const visionUsage = { totalTokens: 0 };
               const visionSystem = `You are a UI/UX analyst. Analyze the design mockup / screenshot and extract interactive elements. Return ONLY JSON: {"elements":[{"tag":"button|input|a|select","text_content":"","placeholder":"","css_selector":""}]}`;
@@ -201,11 +265,6 @@ export async function POST(request: Request) {
             }
           } else if (crawl_mode === 'vision') {
             // Vision mode: screenshot → Vision AI extract elements
-            if (!supportsVision(p, ai_model || '')) {
-              sendEvent('error', `Model "${ai_model}" does not support Vision. Please use GPT-4o, Claude 3+, or Gemini for this mode.`);
-              controller.close();
-              return;
-            }
             const serviceUrl = process.env.CRAWLER_URL?.replace(/\/$/, '');
             if (!serviceUrl) {
               sendEvent('error', 'Vision mode requires the Playwright crawler service (CRAWLER_URL is not configured).');

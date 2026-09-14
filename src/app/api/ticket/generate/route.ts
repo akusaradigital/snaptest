@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { callLLM, callVisionLLM, CompletionOut, supportsVision } from '../../ai/llm';
+import { extractUrls, fetchWebPageContext } from '../../ai/webContext';
 import { parseTicketJson } from '@/lib/ticketJson.mjs';
 import { logUsage } from '../../db';
 import { auth } from '@/auth';
@@ -178,7 +179,14 @@ STRICT CONTEXT RULES:
      - Buat daftar checklist verifikasi konkret (Definition of Done) bagi developer dan QA untuk memastikan bug tuntas diperbaiki tanpa regresi.
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
-- If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
+- If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link, or live site link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
+- MULTIMODAL (IMAGE / SCREENSHOT) & WEB URL SYNTHESIS:
+  * All AI models can read and understand images in SnapTest by default.
+  * When the user attaches an image (screenshot, UI defect, design mockup) AND provides a website link:
+    1. Connect the visual defects or elements visible in the screenshot directly with the live web page and URL provided.
+    2. Explicitly name the relevant module or UI component in the "title" and "description".
+    3. Include reproduction steps starting from the provided URL.
+    4. Set "evidence" to the provided URL (and mention the attached screenshot).
 - REMEMBER & MEMORY INSTRUCTIONS:
   If the user explicitly asks you to remember, save, or retain a rule, format, template preference, or guideline for future sessions (e.g. phrases like "ingat format ini", "ingat aturan ini", "remember this rule/format", "ingat ya formatnya...", "mulai sekarang formatnya...", "ingat seterusnya...", "ingat tidak perlu..."):
   * Extract the core rule or preference clearly, concisely, and imperatively (e.g. "Jangan menyertakan langkah-langkah reproduksi di deskripsi tiket").
@@ -220,19 +228,51 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
     }).join('\n\n');
 
     const latestMessageHasImage = !!lastMsg?.image_base64;
-    const userPromptText = (lastMsg?.content?.trim() || !latestMessageHasImage)
-      ? formattedConversation
-      : `${formattedConversation}\n\n[Please analyze the attached screenshot, identify any bugs, issues, or UI states depicted, and create a complete Jira ticket.]`;
-    const fullPrompt = `Conversation History & Latest Request:\n${userPromptText}`;
+    const userContent = lastMsg?.content || '';
+
+    // Pre-extract URLs and fetch live web context before constructing prompt
+    const urlsInLastMsg = extractUrls(userContent);
+    const allUrlsInConv = extractUrls(formattedConversation);
+    const promptUrls = urlsInLastMsg.length > 0
+      ? Array.from(new Set(urlsInLastMsg))
+      : allUrlsInConv.length > 0
+      ? Array.from(new Set(allUrlsInConv))
+      : [];
+    const urlInPrompt = promptUrls.length > 0 ? promptUrls.join('\n') : null;
+
+    let webContextSection = '';
+    if (promptUrls.length > 0) {
+      try {
+        const webCtx = await fetchWebPageContext(promptUrls[0], 6000);
+        if (webCtx.fullSummary) {
+          webContextSection = `\n\n${webCtx.fullSummary}`;
+        }
+      } catch {}
+    }
+
+    let synthesisInstruction = '';
+    if (latestMessageHasImage && promptUrls.length > 0) {
+      synthesisInstruction = `\n\n[MULTIMODAL & WEB SYNTHESIS INSTRUCTION]:
+The user provided BOTH an attached screenshot/image AND a target website URL (${promptUrls[0]}).
+Synthesize both inputs:
+1. Examine the visual error, disabled button, broken layout, or form fields in the attached screenshot.
+2. Relate it directly to the live page context from "${promptUrls[0]}".
+3. In the Jira ticket:
+   - Formulate a clean, specific title naming the affected module/feature on this URL.
+   - Include reproduction steps starting by navigating to "${promptUrls[0]}".
+   - Accurately describe expected vs actual behavior as shown in the screenshot.
+   - Set "evidence" to include "${promptUrls[0]}".`;
+    } else if (latestMessageHasImage && !userContent.trim()) {
+      synthesisInstruction = '\n\n[Please analyze the attached screenshot, identify any bugs, issues, or UI states depicted, and create a complete Jira ticket.]';
+    }
+
+    const fullPrompt = `Conversation History & Latest Request:\n${formattedConversation}${webContextSection}${synthesisInstruction}`;
 
     const usage: any = { totalTokens: 0 };
     const completion: CompletionOut = {};
     let rawResponse = '';
 
     if (latestMessageHasImage && lastMsg.image_base64) {
-      if (!supportsVision(p, model)) {
-        return NextResponse.json({ detail: `Model "${model}" does not support image analysis. Please select a Vision-capable model.` }, { status: 400 });
-      }
       rawResponse = await callVisionLLM(p, model, apiKey, systemPrompt, fullPrompt, lastMsg.image_base64, 4096, usage, publicBaseUrl, completion);
     } else {
       rawResponse = await callLLM(p, model, apiKey, systemPrompt, fullPrompt, true, 4096, usage, publicBaseUrl, completion);
@@ -262,14 +302,6 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
 
     const isPlaceholder = (str: string) => str.includes('[Module') || str.includes('[Feature Name]') || str.includes('TBD') || str.includes('to be determined');
 
-    const extractUrls = (text: string): string[] => {
-      if (!text) return [];
-      const matches = text.match(/https?:\/\/[^\s"'<>)\]]+/gi) || [];
-      return matches
-        .map((u) => u.replace(/[)\]"'>.,;]+$/, '').trim())
-        .filter((u) => /^https?:\/\/.+/i.test(u));
-    };
-
     const isPlaceholderOrEmptyEvidence = (str?: string | null): boolean => {
       if (!str) return true;
       const clean = str.trim().toLowerCase();
@@ -285,17 +317,6 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
         clean.includes('example.com/evidence')
       );
     };
-
-    // Fallback if LLM placed all content in assistant_reply or omitted title/desc
-    const userContent = lastMsg?.content || '';
-    const urlsInLastMsg = extractUrls(userContent);
-    const allUrlsInConv = extractUrls(formattedConversation);
-    const promptUrls = urlsInLastMsg.length > 0
-      ? Array.from(new Set(urlsInLastMsg))
-      : allUrlsInConv.length > 0
-      ? Array.from(new Set(allUrlsInConv))
-      : [];
-    const urlInPrompt = promptUrls.length > 0 ? promptUrls.join('\n') : null;
 
     // Detect if this turn is primarily a memory instruction, rule, or preference setting
     const isMemoryPrompt = Boolean(

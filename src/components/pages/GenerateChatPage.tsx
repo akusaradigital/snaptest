@@ -84,11 +84,22 @@ function ensureProtocol(url: string) {
   return `https://${t}`;
 }
 
+function extractFirstUrl(text: string): string | null {
+  if (!text) return null;
+  const match = text.match(/\b(?:https?:\/\/|www\.)[^\s"'<>)\]]+/i);
+  if (!match) return null;
+  let url = match[0].replace(/[)\]"'>.,;]+$/, '').trim();
+  if (/^www\./i.test(url)) url = `https://${url}`;
+  return url;
+}
+
 function detectKind(text: string, file: UploadedFile | null) {
   if (!text.trim() && !file) return "empty";
+  const urlInText = extractFirstUrl(text);
+  if (file && urlInText) return "hybrid";
   if (file) return "file";
   if (looksLikeFigmaUrl(text)) return "figma";
-  if (looksLikeUrl(text)) return "url";
+  if (urlInText || looksLikeUrl(text)) return "url";
   return "goal";
 }
 
@@ -427,17 +438,32 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       return;
     }
 
+    const urlInText = extractFirstUrl(currentInputText);
     const resolvedUrl =
-      kind === "url" ? ensureProtocol(currentInputText)
+      urlInText ? ensureProtocol(urlInText)
+      : kind === "url" ? ensureProtocol(currentInputText)
       : kind === "figma" ? currentInputText
       : "document://input";
 
+    const isImage = uploadedFile?.type === "image";
+    const hasLiveUrl = Boolean(resolvedUrl && /^https?:\/\//i.test(resolvedUrl));
+
+    const crawlMode = (hasLiveUrl && isImage)
+      ? "hybrid"
+      : isImage
+      ? "vision"
+      : (uploadedFile?.type === "pdf" || kind === "goal")
+      ? "document"
+      : "static";
+
     const body: Record<string, any> = {
       url: resolvedUrl,
-      user_context: kind === "goal" ? currentInputText : `Test the ${uploadedFile?.name || currentInputText}`,
+      user_context: currentInputText.trim()
+        ? currentInputText.trim()
+        : (uploadedFile ? `Test the ${uploadedFile.name}` : `Test the ${resolvedUrl}`),
       document_title: uploadedFile?.name,
       document_text: uploadedFile?.type === "pdf" ? (uploadedFile.text || "") : undefined,
-      document_image_base64: uploadedFile?.type === "image" ? uploadedFile.imageBase64 : undefined,
+      document_image_base64: isImage ? uploadedFile.imageBase64 : undefined,
       ...aiPayload,
       custom_prompt: getEffectiveAiRules("generator"),
       framework: "playwright",
@@ -445,7 +471,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       fast_mode: false,
       generation_mode: "standard",
       output_mode: "cases",
-      crawl_mode: uploadedFile?.type === "image" ? "vision" : (uploadedFile?.type === "pdf" || kind === "goal") ? "document" : "static",
+      crawl_mode: crawlMode,
     };
 
     const abort = new AbortController();
