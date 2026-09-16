@@ -788,8 +788,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
   ) => {
     setIsLoading(true);
     try {
-      const formattedHistory = messagesForRequest.map((m) => {
-        if (m.role === "assistant" && m.ticket_result) {
+      const lastAssistantIdxWithTicket = messagesForRequest
+        .map((m, idx) => (m.role === "assistant" && m.ticket_result ? idx : -1))
+        .filter((idx) => idx !== -1)
+        .pop();
+
+      const formattedHistory = messagesForRequest.map((m, idx) => {
+        if (m.role === "assistant" && m.ticket_result && idx === lastAssistantIdxWithTicket) {
           const t = m.ticket_result;
           const ticketSummary = [
             `[ACTIVE TICKET DRAFT]`,
@@ -807,10 +812,11 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             image_base64: m.image_base64,
           };
         }
+        const isLatestUserTurn = m.role === "user" && idx === messagesForRequest.length - 1;
         return {
           role: m.role,
           content: m.content,
-          image_base64: m.image_base64,
+          image_base64: isLatestUserTurn ? m.image_base64 : undefined,
         };
       });
 
@@ -877,6 +883,27 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     } catch (err: any) {
       const errMsg = err?.message || "Failed to communicate with AI Agent";
       const isPolicyOrChoiceError = /blocked|PROHIBITED_CONTENT|safety policy|No choices returned|content_filter/i.test(errMsg);
+
+      // Add a helpful assistant error message so the chat state is never left dangling
+      const errorBotMsg: ChatMessage = {
+        id: "msg_" + Date.now(),
+        role: "assistant",
+        content: isPolicyOrChoiceError
+          ? `⚠️ The selected model (${aiModel || "current model"}) blocked the request due to its content safety filter.\n\nTip: Switch to Claude 3.5 Sonnet or GPT-4o in AI Settings, which handle QA bug reports without policy restrictions.`
+          : `⚠️ Generation failed: ${errMsg}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      const sessionsWithError = currentSessions.map((s) => {
+        if (s.id !== currentSessionId) return s;
+        return {
+          ...s,
+          updatedAt: new Date().toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
+          messages: [...messagesForRequest, errorBotMsg],
+        };
+      });
+      const targetSession = sessionsWithError.find((s) => s.id === currentSessionId);
+      saveSessionsToStorage(sessionsWithError, targetSession);
 
       if (isPolicyOrChoiceError && onProviderChange) {
         toast.error(
@@ -959,9 +986,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
     };
 
-    // Append user message immediately
+    // If the trailing message in this session is an unresponded user message (e.g. previous turn failed),
+    // automatically overwrite/replace it so the user's re-send replaces the failed attempt cleanly.
     const sessionMessages = (currentSessions.find((s) => s.id === currentSessionId)?.messages || []);
-    const messagesWithUser = [...sessionMessages, userMsg];
+    const cleanSessionMessages = (sessionMessages.length > 0 && sessionMessages[sessionMessages.length - 1].role === "user")
+      ? sessionMessages.slice(0, -1)
+      : sessionMessages;
+    const messagesWithUser = [...cleanSessionMessages, userMsg];
 
     const updatedSessions = currentSessions.map((s) => {
       if (s.id !== currentSessionId) return s;
