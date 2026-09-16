@@ -6,7 +6,7 @@ import { Lock } from "lucide-react";
 
 export default function Page() {
   const { data: session } = useSession();
-  const { aiProvider, aiModel } = useDashboard();
+  const { aiProvider, aiModel, handleProviderChange } = useDashboard();
   if (!session?.user) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="text-center max-w-sm">
@@ -21,5 +21,5 @@ export default function Page() {
       </div>
     </div>
   );
-  return <TicketPage aiProvider={aiProvider} aiModel={aiModel} />;
+  return <TicketPage aiProvider={aiProvider} aiModel={aiModel} onProviderChange={handleProviderChange} />;
 }

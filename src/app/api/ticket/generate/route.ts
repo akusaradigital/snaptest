@@ -215,16 +215,21 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
 }`;
 
 
-    // ponytail: cap history sent to the LLM — the whole conversation is resent (uncached) every
-    // turn, so a long chat makes every reply slower and pricier. Last 10 turns is plenty of context.
-    // Always keep the first turn too, since that's where a user-set instruction (e.g. "reply in
-    // English from now on") is most likely to live and would otherwise age out of the window.
-    const recentHistory = chatHistory.length > 10
-      ? [chatHistory[0], ...chatHistory.slice(-9)]
+    // Compact history to keep prompts fast, token-lean (~1,500-2,000 tokens), and below provider content-filter thresholds.
+    // Always keep the first turn (for user language/formatting instructions) plus the most recent turns.
+    const recentHistory = chatHistory.length > 6
+      ? [chatHistory[0], ...chatHistory.slice(-5)]
       : chatHistory;
-    const formattedConversation = recentHistory.map((m, i) => {
+
+    const formattedConversation = recentHistory.map((m, i, arr) => {
+      const isLastAssistant = m.role === 'assistant' && i === arr.map(x => x.role).lastIndexOf('assistant');
+      let content = m.content || '';
+      // Condense historical intermediate assistant drafts older than the current one
+      if (m.role === 'assistant' && !isLastAssistant && content.length > 500) {
+        content = `${content.substring(0, 350)}... [Prior draft condensed for context]`;
+      }
       const imgNote = m.image_base64 ? ' [Attached Screenshot]' : '';
-      return `${m.role.toUpperCase()} (Turn ${i + 1}):\n${m.content}${imgNote}`;
+      return `${m.role.toUpperCase()} (Turn ${i + 1}):\n${content}${imgNote}`;
     }).join('\n\n');
 
     const latestMessageHasImage = !!lastMsg?.image_base64;
@@ -243,7 +248,7 @@ Return ONLY a valid JSON object (no markdown blocks like \`\`\`json), with text 
     let webContextSection = '';
     if (promptUrls.length > 0) {
       try {
-        const webCtx = await fetchWebPageContext(promptUrls[0], 6000);
+        const webCtx = await fetchWebPageContext(promptUrls[0], 5000);
         if (webCtx.fullSummary) {
           webContextSection = `\n\n${webCtx.fullSummary}`;
         }

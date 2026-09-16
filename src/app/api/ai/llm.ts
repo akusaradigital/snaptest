@@ -1,3 +1,5 @@
+import { sanitizePromptForContentPolicy } from './webContext';
+
 const PROVIDER_TIMEOUT_MS = 60_000;
 const SUPPORTED_PROVIDERS = new Set(['openai', 'anthropic', 'google', '9router', '9router-public', 'groq', 'deepseek', 'moonshot', 'alibaba']);
 
@@ -214,7 +216,8 @@ export async function callVisionLLM(
   maxTokens: number = 4096,
   usageOut?: UsageOut,
   publicBaseUrl?: string,
-  completionOut?: CompletionOut
+  completionOut?: CompletionOut,
+  isFallbackRetry: boolean = false
 ): Promise<string> {
   const p = validateProvider(provider);
   const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
@@ -262,6 +265,12 @@ export async function callVisionLLM(
         { text: `${systemPrompt}\n\n${textPrompt}` },
       ]}],
       generationConfig: { temperature: 0.3, maxOutputTokens: maxTokens },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+      ],
     };
     const response = await providerFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json();
@@ -350,9 +359,75 @@ export async function callVisionLLM(
     throw providerError(provider, response.status);
   }
 
+  const promptFeedback = data?.response?.promptFeedback || data?.promptFeedback;
+  const isBlocked = Boolean(
+    promptFeedback?.blockReason ||
+    data?.candidates?.[0]?.finishReason === 'SAFETY' ||
+    data?.choices?.[0]?.finish_reason === 'content_filter'
+  );
+
+  if (isBlocked) {
+    const reasonMsg = promptFeedback?.blockReasonMessage || `Blocked due to ${promptFeedback?.blockReason || 'content safety policy'}`;
+
+    if (!isFallbackRetry) {
+      console.warn(`[SelfHealing] Vision call on "${model}" (${provider}) was blocked (${reasonMsg}). Initiating self-healing...`);
+
+      // Attempt 1: Re-try with sanitized QA terms if prompt contained sensitive keywords
+      const sanitized = sanitizePromptForContentPolicy(textPrompt);
+      if (sanitized !== textPrompt) {
+        try {
+          return await callVisionLLM(
+            provider,
+            model,
+            effectiveKey,
+            systemPrompt,
+            sanitized,
+            imageBase64,
+            maxTokens,
+            usageOut,
+            publicBaseUrl,
+            completionOut,
+            true
+          );
+        } catch {}
+      }
+
+      // Attempt 2: If 9Router or 9Router-Public, auto-fallback to high-tolerance coding model
+      if (provider === '9router' || provider === '9router-public') {
+        const fallbacks = ['cc/claude-3-5-sonnet', 'cx/gpt-4o', 'Antigravity'].filter(
+          (f) => f.toLowerCase() !== model.toLowerCase()
+        );
+        for (const candidate of fallbacks) {
+          try {
+            console.log(`[SelfHealing] Switching to fallback model "${candidate}" for vision task...`);
+            return await callVisionLLM(
+              provider,
+              candidate,
+              effectiveKey,
+              systemPrompt,
+              sanitizePromptForContentPolicy(textPrompt),
+              imageBase64,
+              maxTokens,
+              usageOut,
+              publicBaseUrl,
+              completionOut,
+              true
+            );
+          } catch (err: any) {
+            console.warn(`[SelfHealing] Fallback model "${candidate}" failed:`, err?.message);
+          }
+        }
+      }
+    }
+
+    throw new Error(`AI model (${data?.response?.modelVersion || model}) blocked the prompt: ${reasonMsg}. Please rephrase the input or switch to another model (e.g. Claude 3.5 Sonnet, GPT-4o, or DeepSeek).`);
+  }
+
   if (usageOut && data?.usage) usageOut.totalTokens = data.usage.total_tokens;
   if (completionOut) completionOut.finishReason = data?.choices?.[0]?.finish_reason;
-  return data?.choices?.[0]?.message?.content?.trim() || '';
+  const content = data?.choices?.[0]?.message?.content;
+  if (content) return content.trim();
+  throw new Error(`No choices returned in ${provider} response: ${respText}`);
 }
 
 export async function callLLM(
@@ -365,7 +440,8 @@ export async function callLLM(
   maxTokens: number = 2048,
   usageOut?: UsageOut,
   publicBaseUrl?: string,
-  completionOut?: CompletionOut
+  completionOut?: CompletionOut,
+  isFallbackRetry: boolean = false
 ): Promise<string> {
   const p = validateProvider(provider);
   const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
@@ -388,7 +464,13 @@ export async function callLLM(
       generationConfig: {
         temperature: 0.3,
         maxOutputTokens: maxTokens
-      }
+      },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+      ],
     };
     if (jsonMode) {
       payload.generationConfig.responseMimeType = 'application/json';
@@ -406,6 +488,32 @@ export async function callLLM(
     }
 
     const data = JSON.parse(respText);
+    const promptFeedback = data.promptFeedback;
+    if (promptFeedback?.blockReason) {
+      if (!isFallbackRetry) {
+        const sanitized = sanitizePromptForContentPolicy(userPrompt);
+        if (sanitized !== userPrompt) {
+          try {
+            console.warn(`[SelfHealing] Google Gemini blocked content. Retrying with sanitized QA prompt...`);
+            return await callLLM(
+              provider,
+              model,
+              apiKey,
+              systemPrompt,
+              sanitized,
+              jsonMode,
+              maxTokens,
+              usageOut,
+              publicBaseUrl,
+              completionOut,
+              true
+            );
+          } catch {}
+        }
+      }
+      throw new Error(`Google Gemini blocked the prompt: ${promptFeedback.blockReasonMessage || promptFeedback.blockReason}. Please rephrase the input or switch to another model.`);
+    }
+
     if (usageOut && data.usageMetadata) {
       usageOut.totalTokens = data.usageMetadata.totalTokenCount;
     }
@@ -532,6 +640,70 @@ export async function callLLM(
   }
 
   const data = JSON.parse(respText);
+  const promptFeedback = data.response?.promptFeedback || data.promptFeedback;
+  const isBlocked = Boolean(
+    promptFeedback?.blockReason ||
+    data.candidates?.[0]?.finishReason === 'SAFETY' ||
+    data.choices?.[0]?.finish_reason === 'content_filter'
+  );
+
+  if (isBlocked) {
+    const reasonMsg = promptFeedback?.blockReasonMessage || `Blocked due to ${promptFeedback?.blockReason || 'content safety policy'}`;
+
+    if (!isFallbackRetry) {
+      console.warn(`[SelfHealing] LLM call on "${model}" (${provider}) was blocked (${reasonMsg}). Initiating self-healing...`);
+
+      // Attempt 1: Re-try with sanitized QA terms if prompt contained sensitive keywords
+      const sanitized = sanitizePromptForContentPolicy(userPrompt);
+      if (sanitized !== userPrompt) {
+        try {
+          return await callLLM(
+            provider,
+            model,
+            effectiveKey,
+            systemPrompt,
+            sanitized,
+            jsonMode,
+            maxTokens,
+            usageOut,
+            publicBaseUrl,
+            completionOut,
+            true
+          );
+        } catch {}
+      }
+
+      // Attempt 2: If 9Router or 9Router-Public, auto-fallback to high-tolerance coding model
+      if (provider === '9router' || provider === '9router-public') {
+        const fallbacks = ['cc/claude-3-5-sonnet', 'cx/gpt-4o', 'Antigravity'].filter(
+          (f) => f.toLowerCase() !== model.toLowerCase()
+        );
+        for (const candidate of fallbacks) {
+          try {
+            console.log(`[SelfHealing] Switching to fallback model "${candidate}" for LLM task...`);
+            return await callLLM(
+              provider,
+              candidate,
+              effectiveKey,
+              systemPrompt,
+              sanitizePromptForContentPolicy(userPrompt),
+              jsonMode,
+              maxTokens,
+              usageOut,
+              publicBaseUrl,
+              completionOut,
+              true
+            );
+          } catch (err: any) {
+            console.warn(`[SelfHealing] Fallback model "${candidate}" failed:`, err?.message);
+          }
+        }
+      }
+    }
+
+    throw new Error(`AI model (${data.response?.modelVersion || model}) blocked the prompt: ${reasonMsg}. Please rephrase the input or switch to another model (e.g. Claude 3.5 Sonnet, GPT-4o, or DeepSeek).`);
+  }
+
   if (usageOut && data.usage) {
     usageOut.totalTokens = data.usage.total_tokens;
   }

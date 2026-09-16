@@ -28,6 +28,7 @@ import {
 interface TicketPageProps {
   aiProvider: string;
   aiModel: string;
+  onProviderChange?: (provider: string, model: string) => void;
 }
 
 export interface ChatMessage {
@@ -66,7 +67,7 @@ const toTicketResult = (data: Record<string, any>) => data.ticket_data || {
   markdown: data.markdown,
 };
 
-export default function TicketPage({ aiProvider, aiModel }: TicketPageProps) {
+export default function TicketPage({ aiProvider, aiModel, onProviderChange }: TicketPageProps) {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [showHistorySidebar, setShowHistorySidebar] = useState(true);
@@ -874,7 +875,44 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       const target = finalSessions.find((s) => s.id === currentSessionId);
       saveSessionsToStorage(finalSessions, target);
     } catch (err: any) {
-      toast.error(err.message || "Failed to communicate with AI Agent");
+      const errMsg = err?.message || "Failed to communicate with AI Agent";
+      const isPolicyOrChoiceError = /blocked|PROHIBITED_CONTENT|safety policy|No choices returned|content_filter/i.test(errMsg);
+
+      if (isPolicyOrChoiceError && onProviderChange) {
+        toast.error(
+          (t) => (
+            <div className="flex flex-col gap-1.5 py-0.5 text-xs">
+              <div className="font-semibold text-rose-300">Model blocked by safety policy</div>
+              <div className="text-slate-300 line-clamp-2">{errMsg}</div>
+              <div className="flex items-center gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    toast.dismiss(t.id);
+                    const fallbackModel = aiProvider === "9router" || aiProvider === "9router-public" ? "cc/claude-3-5-sonnet" : "gpt-4o";
+                    onProviderChange(aiProvider, fallbackModel);
+                    toast.success(`Switched model to ${fallbackModel}. Retrying...`);
+                    void requestAssistantReply(currentSessions, currentSessionId, messagesForRequest, apiKey);
+                  }}
+                  className="px-2.5 py-1 bg-violet-600 hover:bg-violet-500 text-white rounded font-medium shadow-sm transition"
+                >
+                  Switch to Claude & Retry
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toast.dismiss(t.id)}
+                  className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ),
+          { duration: 10000 }
+        );
+      } else {
+        toast.error(errMsg);
+      }
     } finally {
       setIsLoading(false);
     }
