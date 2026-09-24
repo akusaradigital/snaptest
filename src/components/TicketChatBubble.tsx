@@ -81,10 +81,12 @@ function AutoResizeTextarea({
 export default function TicketChatBubble({
   msg,
   onPushToJira,
+  onUpdateToJira,
   readOnly = false,
   jiraConfigured = true,
   jiraMembers = [],
   pushingJira = false,
+  updatingJira = false,
   onPushToAksora,
   aksoraConfigured = true,
   pushingAksora = false,
@@ -102,10 +104,12 @@ export default function TicketChatBubble({
 }: {
   msg: ChatMessage;
   onPushToJira?: (ticketResult: Record<string, any>) => void;
+  onUpdateToJira?: (ticketResult: Record<string, any>) => void;
   readOnly?: boolean;
   jiraConfigured?: boolean;
   jiraMembers?: Array<{ accountId: string; displayName: string; emailAddress?: string; avatarUrl?: string }>;
   pushingJira?: boolean;
+  updatingJira?: boolean;
   onPushToAksora?: (ticketResult: Record<string, any>) => void;
   aksoraConfigured?: boolean;
   pushingAksora?: boolean;
@@ -953,18 +957,44 @@ export default function TicketChatBubble({
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
             {/* Left side: Active Push Integrations & Statuses */}
             <div className="flex flex-wrap items-center gap-1.5">
-              {/* Jira Push / Status */}
-              {ticket.jira_key && ticket.jira_url ? (
-                <div className="flex items-center gap-1">
-                  <a
-                    href={ticket.jira_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
-                  >
-                    <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Pushed ({ticket.jira_key})</span>
-                  </a>
+              {/* Jira Push / Status / Update */}
+              {ticket.jira_key ? (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {ticket.jira_url ? (
+                    <a
+                      href={ticket.jira_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
+                      title="Open Jira Issue"
+                    >
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Pushed ({ticket.jira_key})</span>
+                    </a>
+                  ) : (
+                    <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Pushed ({ticket.jira_key})</span>
+                    </span>
+                  )}
+
+                  {!readOnly && onUpdateToJira && (
+                    <button
+                      type="button"
+                      onClick={() => onUpdateToJira(ticket)}
+                      disabled={updatingJira}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800 transition disabled:opacity-50"
+                      title={`Update existing Jira ticket ${ticket.jira_key} with current changes`}
+                    >
+                      {updatingJira ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                      ) : (
+                        <RefreshCw className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                      )}
+                      <span>{updatingJira ? "Updating..." : `Update Jira (${ticket.jira_key})`}</span>
+                    </button>
+                  )}
+
                   {jiraLiveStatus ? (
                     <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-600">
                       {jiraLiveStatus.status}
@@ -981,7 +1011,7 @@ export default function TicketChatBubble({
                     </button>
                   )}
                 </div>
-              ) : !readOnly && jiraConfigured && onPushToJira ? (
+              ) : !readOnly && onPushToJira ? (
                 <button
                   type="button"
                   onClick={handlePushClick}

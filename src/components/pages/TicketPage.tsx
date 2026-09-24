@@ -78,6 +78,7 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
   const [isLoading, setIsLoading] = useState(false);
 
   const [pushingJira, setPushingJira] = useState(false);
+  const [updatingJira, setUpdatingJira] = useState(false);
   const [jiraLink, setJiraLink] = useState<{ key: string; url: string } | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
   const [jiraConfigured, setJiraConfigured] = useState(false);
@@ -607,6 +608,77 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     }
   };
 
+  const handleUpdateToJira = async (result: Record<string, any>) => {
+    const savedJira = localStorage.getItem("jira_config");
+    if (!savedJira) {
+      toast.error("Please configure Jira integration in Settings first.");
+      return;
+    }
+    let config: any = {};
+    try { config = JSON.parse(savedJira); } catch {}
+
+    const isOAuth = config.auth_type === "oauth2" && !!config.access_token && !!config.cloud_id;
+    if (!result.jira_key) {
+      toast.error("No Jira issue key found on this ticket.");
+      return;
+    }
+    if (!config.project_key || (!isOAuth && (!config.domain || !config.email || !config.token))) {
+      toast.error("Jira configuration is incomplete. Please check Settings.");
+      return;
+    }
+
+    setUpdatingJira(true);
+    try {
+      if (isOAuth && config.expires_at && Date.now() >= Number(config.expires_at) - 60_000) {
+        const refreshRes = await fetch("/api/jira/oauth/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: config.refresh_token }),
+        });
+        const refreshed = await refreshRes.json();
+        if (!refreshRes.ok) throw new Error(refreshed.detail || "Jira authorization expired");
+        config = { ...config, ...refreshed };
+        localStorage.setItem("jira_config", JSON.stringify(config));
+      }
+
+      const res = await fetch("/api/jira/update", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          issue_key: result.jira_key,
+          title: result.title,
+          description: result.description,
+          current_behavior: result.current_behavior,
+          expected_result: result.expected_result,
+          actual_result: result.actual_result,
+          acceptance_criteria: result.acceptance_criteria,
+          evidence: result.evidence,
+          priority: result.priority,
+          assignee_id: result.assignee_id,
+          jira_label: result.jira_label || result.label || "Development",
+          label: result.jira_label || result.label || "Development",
+          auth_type: config.auth_type,
+          access_token: config.access_token,
+          cloud_id: config.cloud_id,
+          jira_domain: config.domain,
+          jira_email: config.email,
+          jira_token: config.token,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.detail || "Failed to update Jira issue");
+      }
+
+      toast.success(`Jira issue ${result.jira_key} successfully updated!`);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to sync updates to Jira");
+    } finally {
+      setUpdatingJira(false);
+    }
+  };
+
   const handlePushToAksora = async (result: Record<string, any>) => {
     const savedAksora = localStorage.getItem("aksora_config");
     if (!savedAksora) {
@@ -784,7 +856,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     currentSessions: ChatSession[],
     currentSessionId: string,
     messagesForRequest: ChatMessage[],
-    apiKey: string
+    apiKey: string,
+    inheritedJiraInfo?: { jira_key?: string; jira_url?: string; jira_label?: string }
   ) => {
     setIsLoading(true);
     try {
@@ -854,6 +927,15 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         ticketResult.title &&
         ticketResult.description
       );
+
+      // Preserve existing Jira ticket key & url if updating/regenerating an existing ticket
+      if (isActualTicket && inheritedJiraInfo?.jira_key) {
+        ticketResult.jira_key = inheritedJiraInfo.jira_key;
+        ticketResult.jira_url = inheritedJiraInfo.jira_url;
+        if (inheritedJiraInfo.jira_label && !ticketResult.jira_label) {
+          ticketResult.jira_label = inheritedJiraInfo.jira_label;
+        }
+      }
 
       const botMsg: ChatMessage = {
         id: "msg_" + Date.now(),
@@ -1012,7 +1094,19 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     setImagePreview(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    await requestAssistantReply(updatedSessions, currentSessionId, messagesWithUser, apiKey || "");
+    const lastPushedTicket = cleanSessionMessages
+      .slice()
+      .reverse()
+      .find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
+    const inheritedJira = lastPushedTicket?.jira_key
+      ? {
+          jira_key: lastPushedTicket.jira_key,
+          jira_url: lastPushedTicket.jira_url,
+          jira_label: lastPushedTicket.jira_label,
+        }
+      : undefined;
+
+    await requestAssistantReply(updatedSessions, currentSessionId, messagesWithUser, apiKey || "", inheritedJira);
   };
 
   const handleRegenerate = async () => {
@@ -1027,6 +1121,17 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("No user message to regenerate from");
       return;
     }
+
+    const lastPushedTicket =
+      msgs.slice(lastUserIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
+      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
+    const inheritedJira = lastPushedTicket?.jira_key
+      ? {
+          jira_key: lastPushedTicket.jira_key,
+          jira_url: lastPushedTicket.jira_url,
+          jira_label: lastPushedTicket.jira_label,
+        }
+      : undefined;
 
     const truncatedMessages = msgs.slice(0, lastUserIdx + 1);
     const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
@@ -1048,7 +1153,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     saveSessionsToStorage(updatedSessions, target);
 
     try {
-      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
       toast.success("Regenerated reply");
     } finally {
       setIsRegenerating(false);
@@ -1066,6 +1171,17 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Message not found");
       return;
     }
+
+    const lastPushedTicket =
+      msgs.slice(userMsgIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
+      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
+    const inheritedJira = lastPushedTicket?.jira_key
+      ? {
+          jira_key: lastPushedTicket.jira_key,
+          jira_url: lastPushedTicket.jira_url,
+          jira_label: lastPushedTicket.jira_label,
+        }
+      : undefined;
 
     const truncatedMessages = msgs.slice(0, userMsgIdx + 1);
     const publicCfg = aiProvider === "9router-public" ? get9RouterPublicConfig() : null;
@@ -1087,7 +1203,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     saveSessionsToStorage(updatedSessions, target);
 
     try {
-      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
       toast.success("Pesan dikirim ulang & AI merespons");
     } finally {
       setIsRegenerating(false);
@@ -1110,6 +1226,17 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Pesan tidak boleh kosong");
       return;
     }
+
+    const lastPushedTicket =
+      msgs.slice(userMsgIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
+      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
+    const inheritedJira = lastPushedTicket?.jira_key
+      ? {
+          jira_key: lastPushedTicket.jira_key,
+          jira_url: lastPushedTicket.jira_url,
+          jira_label: lastPushedTicket.jira_label,
+        }
+      : undefined;
 
     const updatedUserMsg: ChatMessage = {
       ...msgs[userMsgIdx],
@@ -1137,7 +1264,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     saveSessionsToStorage(updatedSessions, target);
 
     try {
-      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "");
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
       toast.success("Pesan diperbarui & AI merespons ulang");
     } finally {
       setIsRegenerating(false);
@@ -1403,9 +1530,11 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                         : msg
                     }
                     onPushToJira={handlePushToJira}
+                    onUpdateToJira={handleUpdateToJira}
                     jiraConfigured={jiraConfigured}
                     jiraMembers={jiraMembers}
                     pushingJira={pushingJira}
+                    updatingJira={updatingJira}
                     onPushToAksora={handlePushToAksora}
                     aksoraConfigured={aksoraConfigured}
                     pushingAksora={pushingAksora}
