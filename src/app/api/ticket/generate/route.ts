@@ -121,36 +121,68 @@ CONVERSATIONAL INTELLIGENCE & AGENT PERSONALITY (CHATBASE-STYLE CONTEXTUAL QA AG
 - Tone: Professional, articulate, helpful, QA-focused.
 
 TEMPLATE FORMAT RULES (You MUST populate all required fields for the detected type):
+CONCISENESS & QUALITY RULES (apply to ALL ticket types, HIGHEST priority after user veto):
+- Title formula: "[ModuleName] - [Specific concise issue summary naming trigger and failure or goal]"
+  * Examples (Bug): "[Checkout] - Pay Now button becomes unresponsive after selecting QRIS"
+  * Examples (Improvement): "[Talent Search] - Add multi-skill filter to candidate search results"
+  * Examples (New Feature): "[Auth] - Enable biometric WebAuthn login for mobile devices"
+  * CRITICAL TITLE RULE: Determine and use the real, detected feature or module name (e.g. [Checkout], [Talent Pool], [Cart], [Auth]). NEVER output literal meta-strings like "[Feature/Module Name]", "[Module Name]", "[Feature Name]", or "[TBD]".
+- Description guidelines:
+  * For Bug:
+    - Problem Summary: 1-2 concise sentences explaining the issue and impact.
+    - Steps to Reproduce:
+      1. Navigate to ...
+      2. Perform action ...
+      3. Observe the failure.
+      (CRITICAL: Omit Steps to Reproduce if user or rule requests compact or no-steps format).
+    - Technical Notes (optional if relevant): affected endpoint, request payload, browser/device, or console error message.
+  * For Improvement:
+    - Problem statement and reason for improvement.
+  * For New Feature:
+    - Overview of the new feature requirement and target user workflow.
+- Reproduction Steps Quality:
+  * Each step must be an explicit, deterministic user action with concrete inputs and navigation.
+  * Never write vague steps like "Try using the feature", "Reproduce bug", or "Do normal steps".
+- Expected Result: Always titled clean "Expected Result" (never "Expected / Proposed Result"). Keep strictly to 1-2 sentences stating the correct or target outcome only (do NOT repeat steps from description).
+- Actual Result: Strictly 1-2 sentences stating the exact failure or error observed (do NOT repeat steps from description).
+- Acceptance Criteria Quality:
+  * Generate strictly 2-3 high-impact, distinct checklist items (Definition of Done).
+  * Every criterion must be an objective, testable assertion with clear conditions and observable outcomes.
+  * NEVER generate tautological or vague criteria like "Bug is fixed", "System works properly", "Fitur berfungsi normal", or "Tidak terjadi error".
+- Every field must add unique information. No field may restate content already covered in another field.
+
 - BUG:
   - issue_type: "Bug"
-  - title: "[Feature/Module Name] - [Specific concise issue summary]"
-  - description: Clear problem description.
-  - expected_result: What should happen normally.
-  - actual_result: Exact failure or unresponsive behavior observed.
-  - acceptance_criteria: Array of verification checklist items.
+  - title: "[ModuleName] - [Specific concise issue summary]"
+  - description: Problem summary, numbered steps to reproduce, and technical notes if relevant.
+  - expected_result: 1-2 sentences — the correct system behavior.
+  - actual_result: 1-2 sentences — the exact failure observed.
+  - acceptance_criteria: 2-3 concrete verification items only.
   - evidence: Exact URL from input or screenshot note.
 
 - IMPROVEMENT:
   - issue_type: "Improvement"
-  - title: "[Feature/Module Name] - [Specific improvement summary]"
+  - title: "[ModuleName] - [Specific improvement summary]"
   - description: Problem statement and reason for improvement.
-  - current_behavior: How it currently works or current limitation.
-  - expected_result: How it should work after the improvement.
-  - acceptance_criteria: Array of criteria to verify the improvement.
+  - current_behavior: How it currently works or current limitation (1-2 sentences).
+  - expected_result: How it should work after the improvement (1-2 sentences).
+  - acceptance_criteria: 2-3 concrete verification items only.
   - evidence: Exact URL from input.
 
 - NEW FEATURE:
   - issue_type: "New Feature"
-  - title: "[Feature/Module Name] - [Feature summary/goal]"
+  - title: "[ModuleName] - [Feature summary/goal]"
   - description: Overview of the new feature requirement.
-  - expected_result: Target workflow and expected outcome.
-  - acceptance_criteria: Array of clear acceptance criteria / DoD items.
+  - expected_result: Target workflow and expected outcome (1-2 sentences).
+  - acceptance_criteria: 2-3 concrete DoD items only.
   - evidence: Exact URL or reference.
 
 STRICT CONTEXT RULES:
 - USER INSTRUCTIONS & CUSTOM RULES VETO OVERRIDE (HIGHEST PRIORITY):
   * ANY instruction given by the user in chat (e.g. "hapus langkah-langkahnya", "tanpa step", "hilangkan langkah reproduksi", "format ringkas", "hanya ringkasan masalah") or in USER CUSTOM TICKET RULES & GUIDELINES has ABSOLUTE VETO POWER over any default formatting rule below.
-  * If the user or custom rules specify omitting steps to reproduce (e.g. "tanpa langkah reproduksi", "tidak perlu langkah2 reproduksi", "hapus step", "no steps"): You MUST NOT include "Langkah-langkah Reproduksi" or numbered action steps in "description". Provide ONLY the problem summary and technical notes.
+  * If the user or custom rules specify omitting steps to reproduce or using Format Ringkas / Compact preset:
+    - You MUST NOT include "Langkah-langkah Reproduksi" or numbered action steps in "description". Provide ONLY the problem summary and technical notes.
+    - Keep the entire ticket punchy and minimal: expected_result and actual_result strictly 1-2 sentences, and acceptance_criteria strictly 2-3 items.
   * If an [ACTIVE TICKET DRAFT] is present in history and the user asks to remove steps (e.g. "hapus langkah-langkahnya"): Immediately strip the steps from the existing description, preserve the rest of the ticket (title, issue_type, evidence, expected/actual results), and output the updated ticket.
   * Never force or defend default template sections when the user or custom rules requested to omit or format them differently.
 
@@ -160,8 +192,10 @@ STRICT CONTEXT RULES:
   1. Gaya Bahasa: Lugas, objektif, dan to the point agar developer langsung paham tanpa kebingungan.
   2. Istilah Teknis: JANGAN terjemahkan istilah teknis baku software engineering menjadi terjemahan harfiah kaku (tetap gunakan istilah: endpoint, API, payload, response, UI/UX, crash, timeout, query, token, session, console error, network log, status code 4xx/500, dsb).
   3. Format Judul (title):
-     - Pola: "[Nama Modul / Fitur] - [Kendala spesifik & kondisi pemicu]"
-     - Contoh: "[Checkout] - Tombol Bayar Sekarang tidak merespons setelah memilih metode QRIS"
+     - Pola: "[NamaModul] - [Aksi/kondisi pemicu] menyebabkan [kegagalan spesifik/hasil teramati]"
+     - Contoh (Bug): "[Checkout] - Tombol Bayar Sekarang tidak merespons setelah memilih metode QRIS"
+     - Contoh (Improvement): "[Pencarian Talenta] - Tambahkan filter multi-keahlian pada hasil pencarian kandidat"
+     - Contoh (New Feature): "[Autentikasi] - Terapkan opsi login biometrik WebAuthn pada web mobile"
   4. Format Deskripsi (description):
      - Format default bila tidak ada instruksi sebaliknya:
        * Ringkasan Masalah: 1-2 kalimat ringkas menjelaskan kendala dan dampaknya.
@@ -170,13 +204,13 @@ STRICT CONTEXT RULES:
          2. Lakukan aksi ...
          3. Amati kendala yang muncul.
          (PENTING: JANGAN cantumkan bagian Langkah-langkah Reproduksi ini jika user atau aturan meminta 'tanpa langkah', 'tidak perlu steps', atau meminta menghapusnya!)
-       * Catatan Teknis / Lingkungan (bila relevan): endpoint terkait, tipe request, browser/device, atau pesan error console/network.
+       * Catatan Teknis (opsional jika relevan): endpoint terkait, tipe request, browser/device, atau log/pesan error console/network.
   5. Hasil yang Diharapkan (expected_result):
-     - Jelaskan perilaku sistem yang semestinya terjadi secara spesifik menurut kebutuhan bisnis/teknis yang benar.
+     - Maksimal 1-2 kalimat: nyatakan perilaku sistem yang benar. JANGAN ulangi langkah-langkah dari deskripsi.
   6. Hasil Aktual (actual_result):
-     - Jelaskan secara detail kegagalan/error yang terjadi di sistem (UI freeze, tombol disabled, muncul toast error 500, unhandled rejection di console, dsb).
-  7. Kriteria Penerimaan / Acceptance Criteria (acceptance_criteria):
-     - Buat daftar checklist verifikasi konkret (Definition of Done) bagi developer dan QA untuk memastikan bug tuntas diperbaiki tanpa regresi.
+     - Maksimal 1-2 kalimat: nyatakan kegagalan/error yang terjadi (misal: tombol tidak merespons, muncul toast error 500). JANGAN ulangi langkah-langkah dari deskripsi.
+  7. Kriteria Penerimaan (acceptance_criteria):
+     - Buat TEPAT 2-3 checklist verifikasi konkret (Definition of Done). Setiap item harus unik, bernilai tinggi, dan testable — JANGAN buat 4-6 item yang redundan atau kriteria samar seperti "Sistem bekerja dengan baik".
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link, or live site link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.
@@ -370,17 +404,28 @@ Synthesize both inputs:
     if (!isPlaceholderOrEmptyEvidence(parsed.evidence)) {
       const cleanEv = String(parsed.evidence).replace(/\*\*/g, '').trim();
       const extracted = extractUrls(cleanEv);
-      resolvedEvidence = extracted.length > 0 ? Array.from(new Set(extracted)).join('\n') : cleanEv;
+      resolvedEvidence = extracted.length > 0 ? extracted.join('\n') : cleanEv;
     }
     if ((!resolvedEvidence || !/^https?:\/\//i.test(resolvedEvidence)) && urlInPrompt) {
       resolvedEvidence = urlInPrompt;
     }
-    // If prompt had URLs that were missed by the LLM, merge them in
-    if (promptUrls.length > 0 && resolvedEvidence) {
-      const currentUrls = extractUrls(resolvedEvidence);
-      const missingUrls = promptUrls.filter((u) => !currentUrls.includes(u));
-      if (missingUrls.length > 0) {
-        resolvedEvidence = [...currentUrls, ...missingUrls].join('\n');
+    // Merge and deduplicate any URLs (normalizing trailing slashes and case) to prevent duplicate evidence
+    if (resolvedEvidence) {
+      const normalize = (u: string) => u.replace(/\/+$/, '').toLowerCase();
+      const evUrls = extractUrls(resolvedEvidence);
+      if (evUrls.length > 0 || promptUrls.length > 0) {
+        const seen = new Set<string>();
+        const deduped: string[] = [];
+        for (const u of [...evUrls, ...promptUrls]) {
+          const norm = normalize(u);
+          if (!seen.has(norm)) {
+            seen.add(norm);
+            deduped.push(u);
+          }
+        }
+        if (deduped.length > 0) {
+          resolvedEvidence = deduped.join('\n');
+        }
       }
     }
 
@@ -388,21 +433,21 @@ Synthesize both inputs:
     const markdownLines: string[] = [];
     if (hasTicketData) {
       if (selectedFields.includes('issue_type')) markdownLines.push(`**Issue Type:** ${type}`);
+      markdownLines.push(`**Priority:** ${parsed.priority || (type === 'Bug' ? 'P1' : 'P2')}`);
       if (selectedFields.includes('title') && cleanTitle) markdownLines.push(`**Title:** ${cleanTitle}`);
       if (selectedFields.includes('description') && cleanDesc) markdownLines.push(`\n**Description:**\n${cleanDesc}`);
 
-      const currentBehavior = parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null);
+      const currentBehavior = parsed.current_behavior ? String(parsed.current_behavior).replace(/\*\*/g, '').trim() : null;
       const expectedResult = parsed.expected_result ? String(parsed.expected_result).replace(/\*\*/g, '').trim() : null;
 
       if (selectedFields.includes('current_behavior') && currentBehavior && type === 'Improvement') {
-        markdownLines.push(`\n**Current Behavior:**\n${String(currentBehavior).replace(/\*\*/g, '')}`);
+        markdownLines.push(`\n**Current Behavior:**\n${currentBehavior}`);
       }
       if (selectedFields.includes('expected_result') && expectedResult) {
-        const label = type === 'Improvement' ? 'Expected / Proposed Result' : 'Expected Result';
-        markdownLines.push(`\n**${label}:**\n${String(expectedResult).replace(/\*\*/g, '')}`);
+        markdownLines.push(`\n**Expected Result:**\n${expectedResult}`);
       }
       if (selectedFields.includes('actual_result') && parsed.actual_result && type === 'Bug') {
-        markdownLines.push(`\n**Actual Result:**\n${String(parsed.actual_result).replace(/\*\*/g, '')}`);
+        markdownLines.push(`\n**Actual Result:**\n${String(parsed.actual_result).replace(/\*\*/g, '').trim()}`);
       }
       if (selectedFields.includes('acceptance_criteria') && parsed.acceptance_criteria?.length) {
         const cleanAC = parsed.acceptance_criteria.map((c: string) => String(c).replace(/\*\*/g, '').trim());
@@ -424,7 +469,7 @@ Synthesize both inputs:
       priority: parsed.priority || (type === 'Bug' ? 'P1' : 'P2'),
       title: hasTicketData ? cleanTitle : null,
       description: hasTicketData ? cleanDesc : null,
-      current_behavior: hasTicketData ? (parsed.current_behavior || (type === 'Improvement' ? cleanDesc : null)) : null,
+      current_behavior: hasTicketData ? (parsed.current_behavior ? String(parsed.current_behavior).replace(/\*\*/g, '').trim() : null) : null,
       expected_result: hasTicketData ? (parsed.expected_result ? String(parsed.expected_result).replace(/\*\*/g, '').trim() : null) : null,
       actual_result: hasTicketData ? (parsed.actual_result ? String(parsed.actual_result).replace(/\*\*/g, '').trim() : null) : null,
       acceptance_criteria: hasTicketData ? (parsed.acceptance_criteria || null) : null,

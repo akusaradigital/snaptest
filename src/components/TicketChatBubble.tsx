@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Download, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, ChevronDown, FileText, RotateCcw, Send } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, FileText, MoreHorizontal, RotateCcw, Send, Tag, Link2 } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
@@ -130,8 +130,7 @@ export default function TicketChatBubble({
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [checkedCriteria, setCheckedCriteria] = useState<Record<number, boolean>>({});
   const [showPreviewModal, setShowPreviewModal] = useState(false);
-  const [showUnassignedWarningModal, setShowUnassignedWarningModal] = useState(false);
-  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isCompactView, setIsCompactView] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
   const [jiraLiveStatus, setJiraLiveStatus] = useState<{ status: string; assignee_name?: string } | null>(null);
@@ -178,6 +177,7 @@ export default function TicketChatBubble({
   const startEditing = () => {
     setDraft({
       issue_type: msg.ticket_result?.issue_type || "Bug",
+      priority: msg.ticket_result?.priority || "P1",
       title: stripStars(msg.ticket_result?.title),
       description: stripStars(msg.ticket_result?.description),
       component: msg.ticket_result?.component || "",
@@ -217,7 +217,8 @@ export default function TicketChatBubble({
             actual_result: draft.actual_result,
             acceptance_criteria: msg.ticket_result?.acceptance_criteria,
             evidence: draft.evidence,
-            priority: msg.ticket_result?.priority,
+            priority: draft.priority || msg.ticket_result?.priority || "P1",
+            issue_type: draft.issue_type || msg.ticket_result?.issue_type || "Bug",
             assignee_id: draft.assignee_id,
             jira_label: draft.jira_label || "Development",
             label: draft.jira_label || "Development",
@@ -256,15 +257,16 @@ export default function TicketChatBubble({
     const lines: string[] = [];
     const t = msg.ticket_result || {};
     if (t.issue_type) lines.push(`**Issue Type:** ${t.issue_type}`);
+    if (t.priority) lines.push(`**Priority:** ${t.priority}`);
     if (t.title) lines.push(`**Title:** ${stripStars(t.title)}`);
     if (t.component) lines.push(`**Component:** ${t.component}`);
-    if (t.jira_label) lines.push(`**Environment / Label:** ${t.jira_label}`);
+    if (t.jira_label) lines.push(`**Environment:** ${t.jira_label}`);
     if (t.description) lines.push(`\n**Description:**\n${stripStars(t.description)}`);
     if (t.current_behavior) lines.push(`\n**Current Behavior:**\n${stripStars(t.current_behavior)}`);
     if (t.expected_result) lines.push(`\n**Expected Result:**\n${stripStars(t.expected_result)}`);
     if (t.actual_result) lines.push(`\n**Actual Result:**\n${stripStars(t.actual_result)}`);
     if (t.acceptance_criteria?.length) {
-      lines.push(`\n**Acceptance Criteria:**\n${t.acceptance_criteria.map((c: string) => `- [ ] ${stripStars(c)}`).join("\n")}`);
+      lines.push(`\n**Acceptance Criteria:**\n${t.acceptance_criteria.map((c: string) => `- [ ] ${stripStars(c).replace(/^[-*]\s*(\[[ xX]\]\s*)?/, "")}`).join("\n")}`);
     }
     if (t.evidence) {
       const urls = parseEvidenceUrls(t.evidence);
@@ -331,62 +333,145 @@ export default function TicketChatBubble({
 
   const handleDownloadCsv = () => {
     const t = msg.ticket_result || {};
-    const headers = ["Issue Type", "Priority", "Title", "Assignee", "Component", "Description", "Expected Result", "Actual Result", "Acceptance Criteria", "Evidence", "Jira Key"];
-    const escapeCsv = (str: string) => `"${(str || "").replace(/"/g, '""')}"`;
-    const acStr = Array.isArray(t.acceptance_criteria) ? t.acceptance_criteria.join("; ") : (t.acceptance_criteria || "");
+    const headers = [
+      "Issue Type",
+      "Priority",
+      "Title",
+      "Assignee",
+      "Component",
+      "Environment",
+      "Description",
+      "Current Behavior",
+      "Expected Result",
+      "Actual Result",
+      "Acceptance Criteria",
+      "Evidence",
+      "Jira Key",
+    ];
+    const escapeCsv = (str?: string | null) => `"${(str || "").replace(/"/g, '""')}"`;
+    const acStr = Array.isArray(t.acceptance_criteria)
+      ? t.acceptance_criteria.map((c: string) => stripStars(c).replace(/^[-*]\s*(\[[ xX]\]\s*)?/, "")).join("; ")
+      : stripStars(t.acceptance_criteria || "");
     const row = [
       escapeCsv(t.issue_type || "Bug"),
       escapeCsv(t.priority || "P1"),
-      escapeCsv(t.title || ""),
+      escapeCsv(stripStars(t.title)),
       escapeCsv(t.assignee_name || "Unassigned"),
       escapeCsv(t.component || ""),
-      escapeCsv(t.description || ""),
-      escapeCsv(t.expected_result || ""),
-      escapeCsv(t.actual_result || t.current_behavior || ""),
+      escapeCsv(t.jira_label || ""),
+      escapeCsv(stripStars(t.description)),
+      escapeCsv(stripStars(t.current_behavior)),
+      escapeCsv(stripStars(t.expected_result)),
+      escapeCsv(stripStars(t.actual_result)),
       escapeCsv(acStr),
       escapeCsv(t.evidence || ""),
       escapeCsv(t.jira_key || ""),
     ];
     const csvContent = headers.join(",") + "\n" + row.join(",");
-    const title = (t.title || "ticket").replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    const title = (stripStars(t.title) || "ticket").replace(/[^a-z0-9]/gi, "_").toLowerCase();
     downloadFile(csvContent, `${title}.csv`, "text/csv");
   };
 
-  const toggleIssueType = (newType: string) => {
-    if (readOnly || !onUpdateTicket) return;
-    onUpdateTicket(msg.id, { issue_type: newType });
-    toast.success(`Switched to ${newType}`);
-  };
-
-  const togglePriority = (newPriority: string) => {
-    if (readOnly || !onUpdateTicket) return;
-    onUpdateTicket(msg.id, { priority: newPriority });
-    toast.success(`Priority updated to ${newPriority}`);
-  };
-
   const handlePrintPdf = () => {
-    const md = msg.ticket_result?.markdown || generateMarkdown();
-    const title = msg.ticket_result?.title || "QA Issue Ticket";
+    const t = msg.ticket_result || {};
+    const title = stripStars(t.title) || "QA Issue Ticket";
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast.error("Popup blocked. Please allow popups to print PDF.");
       return;
     }
+    const escapeHtml = (str?: string | null) =>
+      (str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+
+    const issueType = escapeHtml(t.issue_type || "Bug");
+    const priority = escapeHtml(t.priority || "P1");
+    const component = escapeHtml(t.component || "");
+    const environment = escapeHtml(t.jira_label || "");
+    const assignee = escapeHtml(t.assignee_name || "");
+    const jiraKey = escapeHtml(t.jira_key || "");
+    const description = escapeHtml(stripStars(t.description));
+    const currentBehavior = escapeHtml(stripStars(t.current_behavior));
+    const expectedResult = escapeHtml(stripStars(t.expected_result));
+    const actualResult = escapeHtml(stripStars(t.actual_result));
+    const evidenceUrls = parseEvidenceUrls(t.evidence);
+
+    const typeBadgeBg = issueType === "Bug" ? "#ffe4e6" : issueType === "Improvement" ? "#fef3c7" : "#d1fae5";
+    const typeBadgeColor = issueType === "Bug" ? "#be123c" : issueType === "Improvement" ? "#b45309" : "#047857";
+
+    const criteriaHtml = Array.isArray(t.acceptance_criteria) && t.acceptance_criteria.length > 0
+      ? `<div class="section"><div class="section-title">Acceptance Criteria</div><ul class="criteria-list">${t.acceptance_criteria
+          .map((c: string) => `<li><span class="checkbox"></span><span>${escapeHtml(stripStars(c).replace(/^[-*]\s*(\[[ xX]\]\s*)?/, ""))}</span></li>`)
+          .join("")}</ul></div>`
+      : "";
+
+    const evidenceHtml = evidenceUrls.length > 0
+      ? `<div class="section"><div class="section-title">Evidence</div><ul class="evidence-list">${evidenceUrls
+          .map((u: string) => `<li><a href="${escapeHtml(u)}" target="_blank" rel="noopener noreferrer">${escapeHtml(u)}</a></li>`)
+          .join("")}</ul></div>`
+      : "";
+
     printWindow.document.write(`
+      <!DOCTYPE html>
       <html>
         <head>
-          <title>${title}</title>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(title)}</title>
           <style>
-            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 40px; line-height: 1.6; color: #1e293b; max-width: 800px; margin: 0 auto; }
-            h1 { font-size: 20px; border-bottom: 2px solid #6366f1; padding-bottom: 8px; color: #0f172a; }
-            pre { background: #f8fafc; border: 1px solid #e2e8f0; padding: 16px; border-radius: 8px; font-family: monospace; white-space: pre-wrap; font-size: 13px; }
-            .badge { display: inline-block; padding: 4px 8px; background: #e0e7ff; color: #4338ca; border-radius: 4px; font-size: 12px; font-weight: bold; margin-bottom: 16px; }
+            @page { margin: 15mm; size: A4; }
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; padding: 24px; line-height: 1.5; color: #1e293b; max-width: 800px; margin: 0 auto; background: #fff; }
+            .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #e2e8f0; padding-bottom: 12px; margin-bottom: 16px; }
+            .branding { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
+            .badges { display: flex; gap: 8px; }
+            .badge { display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 11px; font-weight: 700; }
+            .badge-type { background: ${typeBadgeBg}; color: ${typeBadgeColor}; }
+            .badge-priority { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+            h1 { font-size: 20px; font-weight: 700; color: #0f172a; margin: 0 0 16px 0; line-height: 1.3; }
+            .meta-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 12px; }
+            .meta-item { display: flex; flex-direction: column; }
+            .meta-label { font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748b; margin-bottom: 2px; }
+            .meta-value { font-weight: 600; color: #1e293b; }
+            .section { margin-bottom: 18px; }
+            .section-title { font-size: 12px; font-weight: 700; color: #0f172a; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid #f1f5f9; text-transform: uppercase; letter-spacing: 0.025em; }
+            .section-content { font-size: 13px; color: #334155; white-space: pre-wrap; line-height: 1.6; }
+            .criteria-list { list-style: none; padding: 0; margin: 0; }
+            .criteria-list li { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; font-size: 13px; color: #334155; }
+            .checkbox { width: 14px; height: 14px; border: 1.5px solid #94a3b8; border-radius: 3px; display: inline-block; shrink: 0; margin-top: 3px; }
+            .evidence-list { margin: 0; padding-left: 20px; font-size: 12px; }
+            .evidence-list li { margin-bottom: 4px; word-break: break-all; }
+            .evidence-list a { color: #2563eb; text-decoration: underline; }
+            @media print {
+              body { padding: 0; }
+              .meta-grid { background: #fff !important; border-color: #cbd5e1 !important; }
+            }
           </style>
         </head>
         <body>
-          <div class="badge">SnapTest QA Export</div>
-          <h1>${title}</h1>
-          <pre>${md}</pre>
+          <div class="header">
+            <span class="branding">TestGen Studio &bull; QA Ticket</span>
+            <div class="badges">
+              <span class="badge badge-type">${issueType}</span>
+              <span class="badge badge-priority">${priority}</span>
+              ${jiraKey ? `<span class="badge badge-priority">${jiraKey}</span>` : ""}
+            </div>
+          </div>
+          <h1>${escapeHtml(title)}</h1>
+          ${(component || environment || assignee || jiraKey) ? `
+          <div class="meta-grid">
+            ${component ? `<div class="meta-item"><span class="meta-label">Component</span><span class="meta-value">${component}</span></div>` : ""}
+            ${environment ? `<div class="meta-item"><span class="meta-label">Environment</span><span class="meta-value">${environment}</span></div>` : ""}
+            ${assignee ? `<div class="meta-item"><span class="meta-label">Assignee</span><span class="meta-value">${assignee}</span></div>` : ""}
+            ${jiraKey ? `<div class="meta-item"><span class="meta-label">Jira Key</span><span class="meta-value">${jiraKey}</span></div>` : ""}
+          </div>` : ""}
+          ${description ? `<div class="section"><div class="section-title">Description</div><div class="section-content">${description}</div></div>` : ""}
+          ${currentBehavior ? `<div class="section"><div class="section-title">Current Behavior</div><div class="section-content">${currentBehavior}</div></div>` : ""}
+          ${expectedResult ? `<div class="section"><div class="section-title">Expected Result</div><div class="section-content">${expectedResult}</div></div>` : ""}
+          ${actualResult ? `<div class="section"><div class="section-title">Actual Result</div><div class="section-content">${actualResult}</div></div>` : ""}
+          ${criteriaHtml}
+          ${evidenceHtml}
           <script>
             window.onload = function() { window.print(); }
           </script>
@@ -436,14 +521,9 @@ export default function TicketChatBubble({
   })();
 
   const handlePushClick = () => {
-    if (ticket && jiraConfigured) {
-      if (!ticket.jira_label) {
-        ticket.jira_label = "Development";
-      }
-      setShowUnassignedWarningModal(true);
-    } else if (ticket) {
-      onPushToJira?.(ticket);
-    }
+    if (!ticket) return;
+    if (!ticket.jira_label) ticket.jira_label = "Development";
+    onPushToJira?.(ticket);
   };
 
   return (
@@ -460,144 +540,56 @@ export default function TicketChatBubble({
 
       {hasTicket && ticket ? (
         <div className="space-y-3.5 leading-relaxed">
-          {/* Header Status & Issue Type Switcher */}
+          {/* Header Status & Key Badges — Minimal & Clean */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-700/60">
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Type:</span>
-                {!readOnly ? (
-                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-xs font-semibold">
-                    {["Bug", "Improvement", "New Feature"].map((type) => {
-                      const active = (ticket.issue_type || "Bug") === type;
-                      return (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => toggleIssueType(type)}
-                          className={`px-2 py-0.5 rounded-md transition ${
-                            active
-                              ? type === "Bug"
-                                ? "bg-rose-500 text-white shadow-xs"
-                                : type === "Improvement"
-                                ? "bg-amber-500 text-white shadow-xs"
-                                : "bg-emerald-500 text-white shadow-xs"
-                              : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                          }`}
-                        >
-                          {type}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <span className={`px-2 py-0.5 rounded-md text-xs font-semibold ${
-                    ticket.issue_type === "Bug" ? "bg-rose-100 text-rose-700" : ticket.issue_type === "Improvement" ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"
-                  }`}>
-                    {ticket.issue_type || "Bug"}
-                  </span>
-                )}
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Type Badge */}
+              <span className={`px-2.5 py-0.5 rounded-md text-xs font-bold tracking-wide ${
+                ticket.issue_type === "Bug"
+                  ? "bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800"
+                  : ticket.issue_type === "Improvement"
+                  ? "bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/50 dark:text-amber-300 dark:border-amber-800"
+                  : "bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800"
+              }`}>
+                {ticket.issue_type || "Bug"}
+              </span>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Priority:</span>
-                {!readOnly ? (
-                  <div className="flex items-center gap-0.5 bg-slate-100 dark:bg-slate-700/60 p-0.5 rounded-lg text-[11px] font-bold">
-                    {["P0", "P1", "P2", "P3"].map((p) => {
-                      const active = (ticket.priority || "P1") === p;
-                      const activeColor = p === "P0" ? "bg-red-600 text-white" : p === "P1" ? "bg-orange-500 text-white" : p === "P2" ? "bg-amber-500 text-white" : "bg-slate-500 text-white";
-                      return (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => togglePriority(p)}
-                          className={`px-1.5 py-0.5 rounded transition ${active ? activeColor : "text-slate-500 hover:text-slate-900 dark:hover:text-white"}`}
-                          title={`Set priority to ${p}`}
-                        >
-                          {p}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-                    {ticket.priority || "P1"}
-                  </span>
-                )}
-              </div>
+              {/* Priority Badge */}
+              <span className={`px-1.5 py-0.5 rounded text-[11px] font-bold ${
+                ticket.priority === "P0"
+                  ? "bg-red-50 text-red-700 border border-red-200 dark:bg-red-950/50 dark:text-red-300 dark:border-red-800"
+                  : ticket.priority === "P1"
+                  ? "bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-950/50 dark:text-orange-300 dark:border-orange-800"
+                  : "bg-slate-100 text-slate-700 border border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+              }`}>
+                {ticket.priority || "P1"}
+              </span>
 
-              {jiraConfigured && jiraMembers && jiraMembers.length > 0 && !readOnly && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Assignee:</span>
-                  <select
-                    value={ticket.assignee_id || ""}
-                    onChange={(e) => {
-                      const selectedUser = jiraMembers.find(u => u.accountId === e.target.value);
-                      onUpdateTicket?.(msg.id, {
-                        assignee_id: e.target.value,
-                        assignee_name: selectedUser?.displayName || "",
-                      });
-                      if (selectedUser) {
-                        toast.success(`Assigned to ${selectedUser.displayName}`);
-                      } else {
-                        toast.success("Set to Unassigned");
-                      }
-                    }}
-                    className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  >
-                    <option value="">👤 Unassigned</option>
-                    {jiraMembers.map(u => (
-                      <option key={u.accountId} value={u.accountId}>
-                        👤 {u.displayName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {/* Assignee (if set) */}
+              {ticket.assignee_name && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0" />
+                  {ticket.assignee_name}
+                </span>
               )}
 
-              {jiraConfigured && (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Env:</span>
-                  {!readOnly ? (
-                    <select
-                      value={ticket.jira_label || "Development"}
-                      onChange={(e) => {
-                        onUpdateTicket?.(msg.id, {
-                          jira_label: e.target.value,
-                        });
-                        toast.success(`Env label set to ${e.target.value}`);
-                      }}
-                      className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-medium border-none focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                    >
-                      <option value="Development">🏷️ Development</option>
-                      <option value="UAT">🏷️ UAT</option>
-                      <option value="Production">🏷️ Production</option>
-                    </select>
-                  ) : (
-                    <span className="px-1.5 py-0.5 rounded text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-                      🏷️ {ticket.jira_label || "Development"}
-                    </span>
-                  )}
-                </div>
+              {/* Environment label (if set and not default Development) */}
+              {ticket.jira_label && ticket.jira_label !== "Development" && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                  <Tag className="w-3 h-3 text-slate-400" />
+                  <span>{ticket.jira_label}</span>
+                </span>
               )}
             </div>
 
-            {/* Timeline Tracking Status & Compact View Toggle */}
+            {/* Right side: Status indicator */}
             <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setIsCompactView(!isCompactView)}
-                className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
-                title={isCompactView ? "Switch to detailed ticket view" : "Switch to compact 1-paragraph view"}
-              >
-                {isCompactView ? "Full View" : "Compact"}
-              </button>
-
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider flex items-center gap-1.5 ${
                 isPushed
-                  ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                  ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
                   : "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-blue-500 animate-pulse"}`}></span>
+                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-blue-500 animate-pulse"}`} />
                 {isPushed ? "Pushed" : "Ready to Push"}
               </span>
             </div>
@@ -616,8 +608,9 @@ export default function TicketChatBubble({
               <div className="flex items-center gap-2">
                 {similarTicket.jiraKey && !readOnly && onUpdateTicket && (
                   ticket.linked_issue_key === similarTicket.jiraKey ? (
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
-                      🔗 Linked to {similarTicket.jiraKey}
+                    <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
+                      <Link2 className="w-3 h-3" />
+                      <span>Linked to {similarTicket.jiraKey}</span>
                     </span>
                   ) : (
                     <button
@@ -654,6 +647,54 @@ export default function TicketChatBubble({
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Edit Ticket Draft</span>
                 <span className="text-[10px] text-slate-400">Press Esc to cancel</span>
               </div>
+
+              {/* Type and Priority Pickers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <span className="text-xs font-bold text-slate-500">Issue Type</span>
+                  <div className="flex items-center gap-1 mt-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                    {["Bug", "Improvement", "New Feature"].map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => setDraft({ ...draft, issue_type: type })}
+                        className={`flex-1 py-1 rounded-md transition text-center text-[11px] ${
+                          draft.issue_type === type
+                            ? type === "Bug"
+                              ? "bg-rose-500 text-white shadow-xs font-bold"
+                              : type === "Improvement"
+                              ? "bg-amber-500 text-white shadow-xs font-bold"
+                              : "bg-emerald-500 text-white shadow-xs font-bold"
+                            : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-xs font-bold text-slate-500">Priority</span>
+                  <div className="flex items-center gap-1 mt-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold">
+                    {["P0", "P1", "P2", "P3"].map((p) => {
+                      const active = draft.priority === p;
+                      const activeColor = p === "P0" ? "bg-red-600 text-white" : p === "P1" ? "bg-orange-500 text-white" : p === "P2" ? "bg-amber-500 text-white" : "bg-slate-600 text-white";
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setDraft({ ...draft, priority: p })}
+                          className={`flex-1 py-1 rounded-md transition text-center text-[11px] ${active ? `${activeColor} shadow-xs font-bold` : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"}`}
+                        >
+                          {p}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
               <label className="block">
                 <span className="text-xs font-bold text-slate-500">Title</span>
                 <input
@@ -664,7 +705,7 @@ export default function TicketChatBubble({
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <label className="block">
-                  <span className="text-xs font-bold text-slate-500">Component / Module</span>
+                  <span className="text-xs font-bold text-slate-500">Component</span>
                   <input
                     value={draft.component || ""}
                     onChange={(e) => setDraft({ ...draft, component: e.target.value })}
@@ -700,15 +741,15 @@ export default function TicketChatBubble({
 
                 {jiraConfigured && (
                   <label className="block">
-                    <span className="text-xs font-bold text-slate-500">Environment / Label</span>
+                    <span className="text-xs font-bold text-slate-500">Environment</span>
                     <select
                       value={draft.jira_label || "Development"}
                       onChange={(e) => setDraft({ ...draft, jira_label: e.target.value })}
                       className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                     >
-                      <option value="Development">🏷️ Development</option>
-                      <option value="UAT">🏷️ UAT</option>
-                      <option value="Production">🏷️ Production</option>
+                      <option value="Development">Development</option>
+                      <option value="UAT">UAT</option>
+                      <option value="Production">Production</option>
                     </select>
                   </label>
                 )}
@@ -748,13 +789,11 @@ export default function TicketChatBubble({
                 </label>
               )}
               <label className="block">
-                <span className="text-xs font-bold text-slate-500">
-                  {draft.issue_type === "Improvement" ? "Expected / Proposed Result" : "Expected Result"}
-                </span>
+                <span className="text-xs font-bold text-slate-500">Expected Result</span>
                 <AutoResizeTextarea
                   value={draft.expected_result}
                   onChange={(e) => setDraft({ ...draft, expected_result: e.target.value })}
-                  placeholder="Expected or proposed result..."
+                  placeholder="Expected behavior or outcome..."
                 />
               </label>
               {draft.issue_type === "Bug" && (
@@ -773,7 +812,7 @@ export default function TicketChatBubble({
                   value={draft.evidence}
                   onChange={(e) => setDraft({ ...draft, evidence: e.target.value })}
                   className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                  placeholder="https://..."
+                  placeholder="https://example.com/screenshot.png or recording URL"
                 />
               </label>
               {msg.ticket_result?.jira_key && (
@@ -784,7 +823,7 @@ export default function TicketChatBubble({
                     onChange={(e) => setSyncToJira(e.target.checked)}
                     className="rounded text-blue-600 focus:ring-blue-500"
                   />
-                  <span>Sync updates directly to Jira ({msg.ticket_result.jira_key})</span>
+                  <span>Update Jira issue on save ({msg.ticket_result.jira_key})</span>
                 </label>
               )}
               <div className="flex gap-2 pt-2">
@@ -886,7 +925,7 @@ export default function TicketChatBubble({
 
           {ticket.expected_result && (
             <div>
-              <p className="font-bold mb-1">{ticket.issue_type === "Improvement" ? "Expected / Proposed Result:" : "Expected Result:"}</p>
+              <p className="font-bold mb-1">Expected Result:</p>
               <p className="text-slate-700 dark:text-slate-200 whitespace-pre-wrap">{stripStars(ticket.expected_result)}</p>
             </div>
           )}
@@ -1028,8 +1067,8 @@ export default function TicketChatBubble({
                 </button>
               ) : null}
 
-              {/* Aksora Push / Status */}
-              {ticket.aksora_pushed ? (
+              {/* Aksora Pushed Status Badge (Action is inside ... menu) */}
+              {ticket.aksora_pushed && (
                 ticket.aksora_url ? (
                   <a
                     href={ticket.aksora_url}
@@ -1038,33 +1077,18 @@ export default function TicketChatBubble({
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Aksora</span>
+                    <span>Pushed (Aksora)</span>
                   </a>
                 ) : (
                   <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Aksora</span>
+                    <span>Pushed (Aksora)</span>
                   </span>
                 )
-              ) : !readOnly && aksoraConfigured && onPushToAksora ? (
-                <button
-                  type="button"
-                  onClick={() => onPushToAksora(ticket)}
-                  disabled={pushingAksora}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200 transition disabled:opacity-50"
-                  title="Push to Aksora Workspace"
-                >
-                  {pushingAksora ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-600" />
-                  ) : (
-                    <Share2 className="w-3.5 h-3.5 text-purple-600" />
-                  )}
-                  <span>{pushingAksora ? "Pushing..." : "Push to Aksora"}</span>
-                </button>
-              ) : null}
+              )}
 
-              {/* Google Sheets Sync / Status */}
-              {ticket.sheets_synced ? (
+              {/* Google Sheets Synced Status Badge (Action is inside ... menu) */}
+              {ticket.sheets_synced && (
                 ticket.sheets_url ? (
                   <a
                     href={ticket.sheets_url}
@@ -1073,33 +1097,18 @@ export default function TicketChatBubble({
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition"
                   >
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Sheets</span>
+                    <span>Synced (Sheets)</span>
                   </a>
                 ) : (
                   <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                     <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Sheets</span>
+                    <span>Synced (Sheets)</span>
                   </span>
                 )
-              ) : !readOnly && sheetsConfigured && onSyncToSheets ? (
-                <button
-                  type="button"
-                  onClick={() => onSyncToSheets(ticket)}
-                  disabled={syncingSheets}
-                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition disabled:opacity-50"
-                  title="Append row to Google Spreadsheet"
-                >
-                  {syncingSheets ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
-                  ) : (
-                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  )}
-                  <span>{syncingSheets ? "Syncing..." : "Sync to Sheet"}</span>
-                </button>
-              ) : null}
+              )}
             </div>
 
-            {/* Right side: Edit, Preview, Export dropdown & Primary Copy */}
+            {/* Right side: Edit, Copy Ticket, More (...) */}
             <div className="flex items-center gap-1.5">
               {!readOnly && onUpdateTicket && (
                 <button
@@ -1113,112 +1122,7 @@ export default function TicketChatBubble({
                 </button>
               )}
 
-              <button
-                type="button"
-                onClick={() => setShowPreviewModal(true)}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Preview Jira issue format"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Preview</span>
-              </button>
-
-              {/* Simplified Export Dropdown with Badges & Hover Popover */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowExportMenu(!showExportMenu)}
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                  title="Export ticket to various formats (PDF, Markdown, CSV, JSON)"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Export</span>
-                  <ChevronDown className={`w-3 h-3 transition-transform ${showExportMenu ? "rotate-180" : ""}`} />
-                </button>
-
-                {showExportMenu && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setShowExportMenu(false)}
-                    />
-                    <div className="absolute right-0 bottom-full mb-1.5 w-48 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 py-1 text-xs animate-in fade-in zoom-in-95 duration-150">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowExportMenu(false);
-                          handlePrintPdf();
-                        }}
-                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
-                      >
-                        <div className="flex items-center gap-2">
-                          <Printer className="w-3.5 h-3.5 text-rose-500" />
-                          <span>Print to PDF</span>
-                        </div>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-600">PDF</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowExportMenu(false);
-                          handleDownloadMd();
-                        }}
-                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileText className="w-3.5 h-3.5 text-blue-500" />
-                          <span>Markdown (.md)</span>
-                        </div>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-600">MD</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowExportMenu(false);
-                          handleDownloadCsv();
-                        }}
-                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
-                      >
-                        <div className="flex items-center gap-2">
-                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-                          <span>Spreadsheet (.csv)</span>
-                        </div>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-600">CSV</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setShowExportMenu(false);
-                          handleDownloadJson();
-                        }}
-                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition border-t border-slate-100 dark:border-slate-700"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="w-3.5 text-center font-mono font-bold text-[10px] text-amber-500">{`{}`}</span>
-                          <span>JSON Object (.json)</span>
-                        </div>
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-600">JSON</span>
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-
-              {/* Share Read-only Link Button (Feature 7) */}
-              <button
-                type="button"
-                onClick={handleShareTicket}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
-                title="Share or copy direct ticket link"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>Share</span>
-              </button>
-
-              {/* Primary Action: Copy Ticket */}
+              {/* Primary Action: Copy Markdown */}
               <button
                 type="button"
                 onClick={copyToClipboard}
@@ -1227,11 +1131,143 @@ export default function TicketChatBubble({
                     ? "bg-emerald-600 text-white hover:bg-emerald-700"
                     : "bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white"
                 }`}
-                title="Copy markdown formatted ticket to clipboard"
+                title="Copy ticket as Markdown to clipboard"
               >
                 {copiedAll ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedAll ? "Copied" : "Copy Ticket"}</span>
+                <span>{copiedAll ? "Copied" : "Copy Markdown"}</span>
               </button>
+
+              {/* More (...) dropdown: Preview, Export, Share, Aksora, Sheets */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowMoreMenu(!showMoreMenu)}
+                  className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-slate-50 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 hover:bg-slate-100 border border-slate-200 dark:border-slate-700 transition"
+                  title="More options"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+
+                {showMoreMenu && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowMoreMenu(false)} />
+                    <div className="absolute right-0 bottom-full mb-1.5 w-52 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-2xl z-50 py-1 text-xs animate-in fade-in zoom-in-95 duration-150">
+                      {/* Compact View Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); setIsCompactView(!isCompactView); }}
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Eye className="w-3.5 h-3.5 text-blue-500" />
+                          <span>{isCompactView ? "Show Full View" : "Show Compact View"}</span>
+                        </div>
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300">
+                          {isCompactView ? "Full View" : "Compact"}
+                        </span>
+                      </button>
+
+                      {/* Preview Modal */}
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); setShowPreviewModal(true); }}
+                        className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Preview Jira Issue</span>
+                      </button>
+
+                      {/* Divider */}
+                      <div className="border-t border-slate-100 dark:border-slate-700 my-0.5" />
+
+                      {/* Export options */}
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); handlePrintPdf(); }}
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <Printer className="w-3.5 h-3.5 text-rose-500" />
+                          <span>Print / Export PDF</span>
+                        </div>
+                        <span className="px-1.5 rounded text-[9px] font-bold bg-rose-100 dark:bg-rose-950 text-rose-600">PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); handleDownloadMd(); }}
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-3.5 h-3.5 text-blue-500" />
+                          <span>Markdown (.md)</span>
+                        </div>
+                        <span className="px-1.5 rounded text-[9px] font-bold bg-blue-100 dark:bg-blue-950 text-blue-600">MD</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); handleDownloadCsv(); }}
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
+                          <span>Spreadsheet (.csv)</span>
+                        </div>
+                        <span className="px-1.5 rounded text-[9px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-600">CSV</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); handleDownloadJson(); }}
+                        className="w-full px-3 py-2 text-left flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-3.5 text-center font-mono font-bold text-[10px] text-amber-500">{`{}`}</span>
+                          <span>JSON (.json)</span>
+                        </div>
+                        <span className="px-1.5 rounded text-[9px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-600">JSON</span>
+                      </button>
+
+                      {/* Divider */}
+                      <div className="border-t border-slate-100 dark:border-slate-700 my-0.5" />
+
+                      {/* Share */}
+                      <button
+                        type="button"
+                        onClick={() => { setShowMoreMenu(false); handleShareTicket(); }}
+                        className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Share</span>
+                      </button>
+
+                      {/* Aksora (if configured and not yet pushed) */}
+                      {!readOnly && aksoraConfigured && onPushToAksora && !ticket.aksora_pushed && (
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); onPushToAksora(ticket); }}
+                          disabled={pushingAksora}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition disabled:opacity-50"
+                        >
+                          {pushingAksora ? <Loader2 className="w-3.5 h-3.5 animate-spin text-purple-500" /> : <Share2 className="w-3.5 h-3.5 text-purple-500" />}
+                          <span>{pushingAksora ? "Pushing..." : "Push to Aksora"}</span>
+                        </button>
+                      )}
+
+                      {/* Sheets (if configured and not yet synced) */}
+                      {!readOnly && sheetsConfigured && onSyncToSheets && !ticket.sheets_synced && (
+                        <button
+                          type="button"
+                          onClick={() => { setShowMoreMenu(false); onSyncToSheets(ticket); }}
+                          disabled={syncingSheets}
+                          className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition disabled:opacity-50"
+                        >
+                          {syncingSheets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />}
+                          <span>{syncingSheets ? "Syncing..." : "Sync to Sheets"}</span>
+                        </button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
           )}
@@ -1255,7 +1291,7 @@ export default function TicketChatBubble({
                 }
               }}
               className="text-slate-900 dark:text-slate-100 bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-blue-500"
-              placeholder="Edit pesan kamu..."
+              placeholder="Edit your message..."
             />
             <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
               <span className="text-[10px] text-slate-300/80">Ctrl+Enter kirim • Esc batal</span>
@@ -1382,91 +1418,6 @@ export default function TicketChatBubble({
                 className="btn-secondary text-xs"
               >
                 Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Pre-Push Confirmation Modal */}
-      {showUnassignedWarningModal && ticket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 shrink-0">
-                <AlertCircle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push to Jira Confirmation</h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Confirm assignee and environment label before uploading to Jira.
-                </p>
-              </div>
-            </div>
-
-            {/* Option 1: Assignee */}
-            {jiraMembers && jiraMembers.length > 0 && (
-              <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Assignee (optional):</span>
-                <select
-                  value={ticket.assignee_id || ""}
-                  onChange={(e) => {
-                    const u = jiraMembers.find(m => m.accountId === e.target.value);
-                    onUpdateTicket?.(msg.id, {
-                      assignee_id: e.target.value,
-                      assignee_name: u?.displayName || "",
-                    });
-                  }}
-                  className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-                >
-                  <option value="">Leave Unassigned</option>
-                  {jiraMembers.map(u => (
-                    <option key={u.accountId} value={u.accountId}>
-                      👤 {u.displayName} {u.emailAddress ? `(${u.emailAddress})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            {/* Option 2: Environment / Label */}
-            <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
-              <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Environment Label:</span>
-              <select
-                value={ticket.jira_label || "Development"}
-                onChange={(e) => {
-                  onUpdateTicket?.(msg.id, {
-                    jira_label: e.target.value,
-                  });
-                }}
-                className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
-              >
-                <option value="Development">🏷️ Development</option>
-                <option value="UAT">🏷️ UAT</option>
-                <option value="Production">🏷️ Production</option>
-              </select>
-            </div>
-
-            <div className="flex justify-end gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setShowUnassignedWarningModal(false)}
-                className="btn-secondary text-xs"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setShowUnassignedWarningModal(false);
-                  if (!ticket.jira_label) {
-                    ticket.jira_label = "Development";
-                  }
-                  onPushToJira?.(ticket);
-                }}
-                className="btn-primary text-xs"
-              >
-                {ticket.assignee_id ? "Push to Jira" : "Push without Assignee"}
               </button>
             </div>
           </div>

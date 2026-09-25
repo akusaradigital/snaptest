@@ -51,7 +51,6 @@ export interface ChatSession {
 
 const TICKET_SESSIONS_STORAGE = "snaptest_ticket_sessions_v2";
 
-const stripStars = (str?: string | null) => (str || "").replace(/\*\*/g, "");
 
 const toTicketResult = (data: Record<string, any>) => data.ticket_data || {
   has_ticket_data: data.has_ticket_data,
@@ -79,8 +78,6 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
 
   const [pushingJira, setPushingJira] = useState(false);
   const [updatingJira, setUpdatingJira] = useState(false);
-  const [jiraLink, setJiraLink] = useState<{ key: string; url: string } | null>(null);
-  const [copiedAll, setCopiedAll] = useState(false);
   const [jiraConfigured, setJiraConfigured] = useState(false);
   const [jiraMembers, setJiraMembers] = useState<Array<{ accountId: string; displayName: string; emailAddress?: string; avatarUrl?: string }>>([]);
   const [pushingAksora, setPushingAksora] = useState(false);
@@ -298,7 +295,6 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
 
   const handleSelectSession = (id: string) => {
     setActiveSessionId(id);
-    setJiraLink(null);
     window.location.hash = id;
     const s = sessions.find(s => s.id === id);
     if (!s || s.messages.length === 0) {
@@ -308,11 +304,6 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
 
   const activeSession = sessions.find((s) => s.id === activeSessionId);
   const messages = activeSession ? activeSession.messages : [];
-
-  // Identify latest ticket result msg for docked canvas
-  const latestTicketMsg = [...messages].reverse().find(
-    (m) => m.role === "assistant" && m.ticket_result && m.ticket_result.has_ticket_data !== false
-  );
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -511,17 +502,6 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     saveSessionsToStorage(nextSessions, updatedTarget);
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedAll(true);
-      setTimeout(() => setCopiedAll(false), 2000);
-      toast.success("Copied full ticket to clipboard!");
-    } catch {
-      toast.error("Failed to copy");
-    }
-  };
-
   const handlePushToJira = async (result: Record<string, any>) => {
     const savedJira = localStorage.getItem("jira_config");
     if (!savedJira) {
@@ -538,7 +518,6 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     }
 
     setPushingJira(true);
-    setJiraLink(null);
 
     try {
       if (isOAuth && config.expires_at && Date.now() >= Number(config.expires_at) - 60_000) {
@@ -572,14 +551,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Failed to create Jira issue");
 
-      setJiraLink({ key: data.issue_key, url: data.issue_url });
       if (data.issue_url) {
         navigator.clipboard.writeText(data.issue_url).catch(() => {});
         toast.success(`Created ${data.issue_key} & link copied to clipboard!`);
       } else {
         toast.success(`Created Jira issue ${data.issue_key}!`);
       }
-      if (data.warning) toast(data.warning, { icon: "⚠️" });
+      if (data.warning) toast(data.warning);
 
       // Opsi 3: Simpan jira_key & jira_url ke ticket_result pesan yang dipush
       if (activeSessionId) {
@@ -718,7 +696,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       if (!res.ok) throw new Error(data.detail || "Failed to create Aksora record");
 
       toast.success(data.message || "Pushed to Aksora!");
-      if (data.warning) toast(data.warning, { icon: "⚠️" });
+      if (data.warning) toast(data.warning);
 
       if (activeSessionId) {
         const nextSessions = sessions.map(s => {
@@ -923,7 +901,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         const lastMsg = messagesForRequest[messagesForRequest.length - 1];
         const isGlobal = /semua fitur|global|setiap fitur|all features/i.test(lastMsg?.content || "");
         rememberAiRule(data.remember_rule, isGlobal ? "global" : "ticket");
-        toast.success(`🧠 Format/aturan baru disimpan: "${data.remember_rule.slice(0, 60)}..."`, { duration: 5000 });
+        toast.success(`New rule saved: "${data.remember_rule.slice(0, 60)}..."`, { duration: 5000 });
       }
 
       const ticketResult = toTicketResult(data);
@@ -976,8 +954,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         id: "msg_" + Date.now(),
         role: "assistant",
         content: isPolicyOrChoiceError
-          ? `⚠️ The selected model (${aiModel || "current model"}) blocked the request due to its content safety filter.\n\nTip: Switch to Claude 3.5 Sonnet or GPT-4o in AI Settings, which handle QA bug reports without policy restrictions.`
-          : `⚠️ Generation failed: ${errMsg}`,
+          ? `The selected model (${aiModel || "current model"}) blocked the request due to its content safety filter.\n\nTip: Switch to Claude 3.5 Sonnet or GPT-4o in AI Settings, which handle QA bug reports without policy restrictions.`
+          : `Generation failed: ${errMsg}`,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -1195,7 +1173,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
     try {
       await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
-      toast.success("Pesan dikirim ulang & AI merespons");
+      toast.success("Resent message. Generating response...");
     } finally {
       setIsRegenerating(false);
     }
@@ -1214,7 +1192,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     }
 
     if (!newContent.trim()) {
-      toast.error("Pesan tidak boleh kosong");
+      toast.error("Message cannot be empty");
       return;
     }
 
@@ -1255,7 +1233,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
     try {
       await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
-      toast.success("Pesan diperbarui & AI merespons ulang");
+      toast.success("Message updated. Generating response...");
     } finally {
       setIsRegenerating(false);
     }
@@ -1497,7 +1475,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 onClick={() => setInputText("https://example.com/checkout bug: checkout page fails to apply discount code")}
                 className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 hover:border-blue-300 hover:text-blue-600 transition"
               >
-                💡 Example: Checkout Discount Bug
+                Example: Checkout Discount Bug
               </button>
             </div>
           ) : (
@@ -1579,47 +1557,6 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         {/* Input Dock — pinned above draft */}
         <div className="shrink-0 px-3 pb-3 pt-2">
           <div className="bg-white dark:bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700 p-2.5">
-            {/* Format Presets Bar */}
-            <div className="flex items-center gap-1.5 px-2 pb-2 mb-1.5 border-b border-slate-100 dark:border-slate-700/60 overflow-x-auto">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-0.5">Format:</span>
-              <button
-                type="button"
-                onClick={() => handleSetPreset("standard")}
-                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
-                  ticketPreset === "standard"
-                    ? "bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold"
-                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-                }`}
-                title="Format standar lengkap dengan Langkah-langkah Reproduksi"
-              >
-                📋 Standar (Steps)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset("compact")}
-                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
-                  ticketPreset === "compact"
-                    ? "bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-semibold ring-1 ring-amber-300 dark:ring-amber-700"
-                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-                }`}
-                title="Hanya ringkasan masalah & hasil diharapkan/aktual tanpa langkah reproduksi"
-              >
-                ⚡ Ringkas (Tanpa Steps)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSetPreset("technical")}
-                className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
-                  ticketPreset === "technical"
-                    ? "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-semibold"
-                    : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
-                }`}
-                title="Fokus endpoint/API, status code, payload & respon error"
-              >
-                🧪 Teknis (API/Logs)
-              </button>
-            </div>
-
             {imagePreview && (
               <div className="mb-2 relative inline-block border rounded-xl overflow-hidden bg-slate-100 max-w-xs">
                 <img src={imagePreview} alt="Screenshot preview" className="max-h-28 object-contain" />
@@ -1638,6 +1575,26 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 <Upload className="w-5 h-5" />
                 <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </label>
+
+              {/* Minimal format pill selector */}
+              <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-700/60 p-0.5 shrink-0" title="Ticket format preset">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 px-1">Format:</span>
+                {(["standard", "compact", "technical"] as const).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => handleSetPreset(p)}
+                    title={p === "standard" ? "Standard (with steps)" : p === "compact" ? "Compact (no steps)" : "Technical (API & logs)"}
+                    className={`text-[10px] px-2 py-0.5 rounded-md transition-all leading-none ${
+                      ticketPreset === p
+                        ? "bg-white dark:bg-slate-600 text-slate-800 dark:text-slate-100 shadow-xs font-semibold"
+                        : "text-slate-400 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    {p === "standard" ? "Standard" : p === "compact" ? "Compact" : "Technical"}
+                  </button>
+                ))}
+              </div>
 
               <textarea
                 ref={textareaRef}
