@@ -298,6 +298,7 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
 
   const handleSelectSession = (id: string) => {
     setActiveSessionId(id);
+    setJiraLink(null);
     window.location.hash = id;
     const s = sessions.find(s => s.id === id);
     if (!s || s.messages.length === 0) {
@@ -814,6 +815,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
     setSyncingSheets(true);
     let successCount = 0;
+    const successfulTickets = new Set<Record<string, any>>();
 
     for (const t of unsyncedTickets) {
       try {
@@ -827,18 +829,21 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             ticket: t,
           }),
         });
-        if (res.ok) successCount++;
+        if (res.ok) {
+          successCount++;
+          successfulTickets.add(t);
+        }
       } catch {}
     }
 
     setSyncingSheets(false);
     if (successCount > 0) {
       toast.success(`Synced ${successCount} ticket(s) to Google Sheets!`);
-      // Update session state
+      // Update session state only for tickets that actually succeeded
       const nextSessions = sessions.map(s => {
         if (s.id !== activeSessionId) return s;
         const nextMessages = s.messages.map(m => {
-          if (m.role !== "assistant" || !m.ticket_result) return m;
+          if (m.role !== "assistant" || !m.ticket_result || !successfulTickets.has(m.ticket_result)) return m;
           return { ...m, ticket_result: { ...m.ticket_result, sheets_synced: true, sheets_url: config.sheet_url || undefined } };
         });
         return { ...s, messages: nextMessages };
@@ -1094,19 +1099,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     setImagePreview(null);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
-    const lastPushedTicket = cleanSessionMessages
-      .slice()
-      .reverse()
-      .find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
-    const inheritedJira = lastPushedTicket?.jira_key
-      ? {
-          jira_key: lastPushedTicket.jira_key,
-          jira_url: lastPushedTicket.jira_url,
-          jira_label: lastPushedTicket.jira_label,
-        }
-      : undefined;
-
-    await requestAssistantReply(updatedSessions, currentSessionId, messagesWithUser, apiKey || "", inheritedJira);
+    await requestAssistantReply(updatedSessions, currentSessionId, messagesWithUser, apiKey || "");
   };
 
   const handleRegenerate = async () => {
@@ -1122,14 +1115,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       return;
     }
 
-    const lastPushedTicket =
-      msgs.slice(lastUserIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
-      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
-    const inheritedJira = lastPushedTicket?.jira_key
+    // Only inherit jira info from the assistant reply paired with THIS user message
+    const pairedAssistant = msgs.slice(lastUserIdx + 1).find((m) => m.role === "assistant");
+    const inheritedJira = pairedAssistant?.ticket_result?.jira_key
       ? {
-          jira_key: lastPushedTicket.jira_key,
-          jira_url: lastPushedTicket.jira_url,
-          jira_label: lastPushedTicket.jira_label,
+          jira_key: pairedAssistant.ticket_result.jira_key,
+          jira_url: pairedAssistant.ticket_result.jira_url,
+          jira_label: pairedAssistant.ticket_result.jira_label,
         }
       : undefined;
 
@@ -1172,14 +1164,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       return;
     }
 
-    const lastPushedTicket =
-      msgs.slice(userMsgIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
-      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
-    const inheritedJira = lastPushedTicket?.jira_key
+    // Only inherit jira info from the assistant reply paired with THIS user message
+    const pairedAssistant = msgs.slice(userMsgIdx + 1).find((m) => m.role === "assistant");
+    const inheritedJira = pairedAssistant?.ticket_result?.jira_key
       ? {
-          jira_key: lastPushedTicket.jira_key,
-          jira_url: lastPushedTicket.jira_url,
-          jira_label: lastPushedTicket.jira_label,
+          jira_key: pairedAssistant.ticket_result.jira_key,
+          jira_url: pairedAssistant.ticket_result.jira_url,
+          jira_label: pairedAssistant.ticket_result.jira_label,
         }
       : undefined;
 
@@ -1227,14 +1218,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       return;
     }
 
-    const lastPushedTicket =
-      msgs.slice(userMsgIdx).find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result ||
-      msgs.slice().reverse().find((m) => m.role === "assistant" && m.ticket_result?.jira_key)?.ticket_result;
-    const inheritedJira = lastPushedTicket?.jira_key
+    // Only inherit jira info from the assistant reply paired with THIS user message
+    const pairedAssistant = msgs.slice(userMsgIdx + 1).find((m) => m.role === "assistant");
+    const inheritedJira = pairedAssistant?.ticket_result?.jira_key
       ? {
-          jira_key: lastPushedTicket.jira_key,
-          jira_url: lastPushedTicket.jira_url,
-          jira_label: lastPushedTicket.jira_label,
+          jira_key: pairedAssistant.ticket_result.jira_key,
+          jira_url: pairedAssistant.ticket_result.jira_url,
+          jira_label: pairedAssistant.ticket_result.jira_label,
         }
       : undefined;
 

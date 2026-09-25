@@ -746,7 +746,26 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       setPlaywrightScripts(scripts); updateArtifacts({ playwright: scripts, repair: undefined });
     } else if (confirmation === "jira" && a?.jiraDraft) {
       const config = JSON.parse(localStorage.getItem("jira_config") || "{}");
-      const response = await fetch("/api/jira/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...a.jiraDraft, jira_domain: config.domain, jira_email: config.email, jira_token: config.token, jira_project_key: config.project_key }) });
+      const isOAuth = config.auth_type === "oauth2" && !!config.access_token && !!config.cloud_id;
+      if (!config.project_key || (!isOAuth && (!config.domain || !config.email || !config.token))) {
+        toast.error("Jira configuration is incomplete. Please check Settings.");
+        setConfirmation(null);
+        return;
+      }
+      const response = await fetch("/api/jira/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...a.jiraDraft,
+          auth_type: config.auth_type,
+          access_token: config.access_token,
+          cloud_id: config.cloud_id,
+          jira_domain: config.domain,
+          jira_email: config.email,
+          jira_token: config.token,
+          jira_project_key: config.project_key,
+        }),
+      });
       const data = await response.json(); if (!response.ok) { toast.error(data.detail || "Jira creation failed"); return; }
       updateArtifacts({ jiraIssue: { key: data.issue_key, url: data.issue_url } });
       if (data.warning) toast(data.warning, { icon: "⚠️" });
