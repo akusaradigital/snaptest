@@ -130,6 +130,7 @@ export default function TicketChatBubble({
   const [draft, setDraft] = useState<Record<string, any>>({});
   const [checkedCriteria, setCheckedCriteria] = useState<Record<number, boolean>>({});
   const [showPreviewModal, setShowPreviewModal] = useState(false);
+  const [showUnassignedWarningModal, setShowUnassignedWarningModal] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
   const [isCompactView, setIsCompactView] = useState(false);
   const [syncingStatus, setSyncingStatus] = useState(false);
@@ -194,6 +195,26 @@ export default function TicketChatBubble({
   };
 
   const saveEditing = async () => {
+    const original = msg.ticket_result || {};
+    const hasChanges =
+      (draft.issue_type || "Bug") !== (original.issue_type || "Bug") ||
+      (draft.priority || "P1") !== (original.priority || "P1") ||
+      (draft.title || "").trim() !== stripStars(original.title || "").trim() ||
+      (draft.description || "").trim() !== stripStars(original.description || "").trim() ||
+      (draft.component || "").trim() !== (original.component || "").trim() ||
+      (draft.assignee_id || "") !== (original.assignee_id || "") ||
+      (draft.jira_label || "Development") !== (original.jira_label || "Development") ||
+      (draft.current_behavior || "").trim() !== stripStars(original.current_behavior || "").trim() ||
+      (draft.expected_result || "").trim() !== stripStars(original.expected_result || "").trim() ||
+      (draft.actual_result || "").trim() !== stripStars(original.actual_result || "").trim() ||
+      (draft.evidence || "").trim() !== (original.evidence || "").trim();
+
+    if (!hasChanges) {
+      setIsEditing(false);
+      toast("Tidak ada perubahan.", { icon: "ℹ️" });
+      return;
+    }
+
     const hasJiraKey = Boolean(msg.ticket_result?.jira_key);
     if (hasJiraKey && syncToJira) {
       setIsSyncingJira(true);
@@ -523,7 +544,7 @@ export default function TicketChatBubble({
   const handlePushClick = () => {
     if (!ticket) return;
     if (!ticket.jira_label) ticket.jira_label = "Development";
-    onPushToJira?.(ticket);
+    setShowUnassignedWarningModal(true);
   };
 
   return (
@@ -697,10 +718,10 @@ export default function TicketChatBubble({
 
               <label className="block">
                 <span className="text-xs font-bold text-slate-500">Title</span>
-                <input
+                <AutoResizeTextarea
                   value={draft.title}
                   onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  placeholder="Ticket title..."
                 />
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -808,10 +829,9 @@ export default function TicketChatBubble({
               )}
               <label className="block">
                 <span className="text-xs font-bold text-slate-500">Evidence URL</span>
-                <input
+                <AutoResizeTextarea
                   value={draft.evidence}
                   onChange={(e) => setDraft({ ...draft, evidence: e.target.value })}
-                  className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
                   placeholder="https://example.com/screenshot.png or recording URL"
                 />
               </label>
@@ -1418,6 +1438,87 @@ export default function TicketChatBubble({
                 className="btn-secondary text-xs"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-Push Confirmation Modal */}
+      {showUnassignedWarningModal && ticket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-700 p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-950 flex items-center justify-center text-blue-600 shrink-0">
+                <AlertCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push to Jira Confirmation</h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Confirm assignee and environment label before uploading to Jira.
+                </p>
+              </div>
+            </div>
+
+            {/* Assignee */}
+            {jiraMembers && jiraMembers.length > 0 && (
+              <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+                <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Assignee (optional):</span>
+                <select
+                  value={ticket.assignee_id || ""}
+                  onChange={(e) => {
+                    const u = jiraMembers.find(m => m.accountId === e.target.value);
+                    onUpdateTicket?.(msg.id, {
+                      assignee_id: e.target.value,
+                      assignee_name: u?.displayName || "",
+                    });
+                  }}
+                  className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="">Leave Unassigned</option>
+                  {jiraMembers.map(u => (
+                    <option key={u.accountId} value={u.accountId}>
+                      👤 {u.displayName} {u.emailAddress ? `(${u.emailAddress})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            {/* Environment */}
+            <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">Select Environment Label:</span>
+              <select
+                value={ticket.jira_label || "Development"}
+                onChange={(e) => {
+                  onUpdateTicket?.(msg.id, { jira_label: e.target.value });
+                }}
+                className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              >
+                <option value="Development">🏷️ Development</option>
+                <option value="UAT">🏷️ UAT</option>
+                <option value="Production">🏷️ Production</option>
+              </select>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowUnassignedWarningModal(false)}
+                className="btn-secondary text-xs"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowUnassignedWarningModal(false);
+                  if (!ticket.jira_label) ticket.jira_label = "Development";
+                  onPushToJira?.(ticket);
+                }}
+                className="btn-primary text-xs"
+              >
+                {ticket.assignee_id ? "Push to Jira" : "Push without Assignee"}
               </button>
             </div>
           </div>
