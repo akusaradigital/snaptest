@@ -406,17 +406,17 @@ Synthesize both inputs:
       const extracted = extractUrls(cleanEv);
       resolvedEvidence = extracted.length > 0 ? extracted.join('\n') : cleanEv;
     }
-    if ((!resolvedEvidence || !/^https?:\/\//i.test(resolvedEvidence)) && urlInPrompt) {
-      resolvedEvidence = urlInPrompt;
+    if ((!resolvedEvidence || !/^https?:\/\//i.test(resolvedEvidence)) && urlsInLastMsg.length > 0) {
+      resolvedEvidence = urlsInLastMsg[0];
     }
-    // Merge and deduplicate any URLs (normalizing trailing slashes and case) to prevent duplicate evidence
+    // Merge and deduplicate URLs within the resolved evidence only (no cross-contamination from history)
     if (resolvedEvidence) {
       const normalize = (u: string) => u.replace(/\/+$/, '').toLowerCase();
       const evUrls = extractUrls(resolvedEvidence);
-      if (evUrls.length > 0 || promptUrls.length > 0) {
+      if (evUrls.length > 0) {
         const seen = new Set<string>();
         const deduped: string[] = [];
-        for (const u of [...evUrls, ...promptUrls]) {
+        for (const u of evUrls) {
           const norm = normalize(u);
           if (!seen.has(norm)) {
             seen.add(norm);
