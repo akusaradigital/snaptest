@@ -1570,31 +1570,33 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
               </div>
             )}
 
+            {/* Format Presets Bar */}
+            <div className="flex items-center gap-1.5 px-1 pb-2 mb-1.5 border-b border-slate-100 dark:border-slate-700/60 overflow-x-auto">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 mr-0.5">Format:</span>
+              {([
+                { key: "standard", label: "📋 Standar (Steps)", title: "Format standar lengkap dengan Langkah-langkah Reproduksi", active: "bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 font-semibold" },
+                { key: "compact", label: "⚡ Ringkas (Tanpa Steps)", title: "Hanya ringkasan masalah & hasil diharapkan/aktual tanpa langkah reproduksi", active: "bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 font-semibold ring-1 ring-amber-300 dark:ring-amber-700" },
+                { key: "technical", label: "🧪 Teknis (API/Logs)", title: "Fokus endpoint/API, status code, payload & respon error", active: "bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-semibold" },
+              ] as const).map((p) => (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => handleSetPreset(p.key)}
+                  title={p.title}
+                  className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full transition-colors flex items-center gap-1 shrink-0 ${
+                    ticketPreset === p.key ? p.active : "text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700"
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
             <form onSubmit={handleSendMessage} className="flex items-center gap-2">
               <label className="p-2 rounded-full text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-slate-700 cursor-pointer transition shrink-0" title="Attach screenshot">
                 <Upload className="w-5 h-5" />
                 <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
               </label>
-
-              {/* Minimal format pill selector */}
-              <div className="flex items-center rounded-lg bg-slate-100 dark:bg-slate-700/60 p-0.5 shrink-0" title="Ticket format preset">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 shrink-0 px-1">Format:</span>
-                {(["standard", "compact", "technical"] as const).map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => handleSetPreset(p)}
-                    title={p === "standard" ? "Standard (with steps)" : p === "compact" ? "Compact (no steps)" : "Technical (API & logs)"}
-                    className={`text-[10px] px-2 py-0.5 rounded-md transition-all leading-none ${
-                      ticketPreset === p
-                        ? "bg-white dark:bg-slate-600 text-slate-800 dark:text-slate-100 shadow-xs font-semibold"
-                        : "text-slate-400 dark:text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    {p === "standard" ? "Standard" : p === "compact" ? "Compact" : "Technical"}
-                  </button>
-                ))}
-              </div>
 
               <textarea
                 ref={textareaRef}
