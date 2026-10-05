@@ -34,7 +34,7 @@ interface SessionItem {
   title: string;
   updatedAt: string;
   input?: string;
-  result?: PlannerResult;
+  result?: PlannerResult | null;
   loaded?: boolean;
 }
 
@@ -55,6 +55,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 const AGENT_TYPE = 'planner';
 const LOCAL_FALLBACK_KEY = 'planner-sessions-fallback';
+const ACTIVE_PLANNER_SESSION_KEY = "snaptest_planner_active_session_id";
 
 export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   const [input, setInput] = useState('');
@@ -88,35 +89,105 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
     } catch { /* ignore */ }
   };
 
+  // Synchronize activeSessionId with localStorage and URL hash
+  useEffect(() => {
+    try {
+      if (activeSessionId) {
+        localStorage.setItem(ACTIVE_PLANNER_SESSION_KEY, activeSessionId);
+      } else {
+        localStorage.removeItem(ACTIVE_PLANNER_SESSION_KEY);
+      }
+    } catch { /* ignore */ }
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", activeSessionId ? "#" + activeSessionId : window.location.pathname);
+    }
+  }, [activeSessionId]);
+
   // Load sessions from server (with fallback to localStorage if offline/unauthenticated)
   useEffect(() => {
     const load = async () => {
+      let localFallbackItems: SessionItem[] = [];
       try {
         const stored = localStorage.getItem(LOCAL_FALLBACK_KEY);
-        if (stored) setSessions(JSON.parse(stored));
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) localFallbackItems = parsed;
+        }
       } catch { /* ignore */ }
+
+      const hashId = typeof window !== 'undefined' ? window.location.hash.replace("#", "") : "";
+      let storedId: string | null = null;
+      try {
+        storedId = localStorage.getItem(ACTIVE_PLANNER_SESSION_KEY);
+      } catch { /* ignore */ }
+
+      let items: SessionItem[] = [];
+      let loadedFromServer = false;
 
       try {
         const res = await fetch(`/api/sessions?agent_type=${AGENT_TYPE}`);
         if (res.ok) {
           const data = await res.json();
           if (Array.isArray(data.items)) {
-            const items: SessionItem[] = data.items.map((it: any) => ({
+            items = data.items.map((it: any) => ({
               id: it.id,
               title: it.title || 'Untitled Plan',
               updatedAt: it.updated_at,
             }));
-            setSessions(items);
-            if (items[0]) fetch(`/api/sessions/${items[0].id}`).catch(() => {});
-            return;
+            loadedFromServer = true;
           }
         }
       } catch { /* fall through to local fallback */ }
 
-      try {
-        const stored = localStorage.getItem(LOCAL_FALLBACK_KEY);
-        if (stored) setSessions(JSON.parse(stored));
-      } catch { /* ignore */ }
+      if (!loadedFromServer) {
+        items = localFallbackItems;
+      }
+
+      setSessions(items);
+
+      const targetId = (hashId && items.some(s => s.id === hashId))
+        ? hashId
+        : (storedId && items.some(s => s.id === storedId))
+        ? storedId
+        : items[0]?.id || null;
+
+      if (targetId) {
+        let hydratedInput = "";
+        let hydratedResult: PlannerResult | null = null;
+        let fetchedDetail = false;
+
+        if (loadedFromServer) {
+          try {
+            const res = await fetch(`/api/sessions/${targetId}`);
+            if (res.ok) {
+              const detail = await res.json();
+              hydratedInput = detail.data?.input || "";
+              hydratedResult = detail.data?.result || null;
+              fetchedDetail = true;
+            }
+          } catch { /* fallback to local */ }
+        }
+
+        if (!fetchedDetail) {
+          const localMatch = localFallbackItems.find(s => s.id === targetId);
+          if (localMatch) {
+            hydratedInput = localMatch.input || "";
+            hydratedResult = localMatch.result || null;
+            fetchedDetail = true;
+          }
+        }
+
+        setActiveSessionId(targetId);
+        setInput(hydratedInput);
+        setResult(hydratedResult);
+        setSessions(prev =>
+          prev.map(s =>
+            s.id === targetId
+              ? { ...s, input: hydratedInput, result: hydratedResult, loaded: true }
+              : s
+          )
+        );
+      }
     };
     load();
   }, []);
@@ -143,21 +214,39 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
     } catch { /* offline: local fallback already saved above */ }
   };
 
-  const deleteSession = (id: string) => {
-    setSessions(prev => {
-      const updated = prev.filter(s => s.id !== id);
-      saveToLocalFallback(updated);
-      return updated;
-    });
+  const confirmDelete = async (id: string) => {
+    const updated = sessions.filter(s => s.id !== id);
+    setSessions(updated);
+    saveToLocalFallback(updated);
+
     if (activeSessionId === id) {
-      setActiveSessionId(null);
-      setResult(null);
-      setInput('');
+      const nextSession = updated[0] || null;
+      const nextId = nextSession ? nextSession.id : null;
+      setActiveSessionId(nextId);
+      if (nextSession) {
+        if (nextSession.loaded) {
+          setInput(nextSession.input || '');
+          setResult(nextSession.result || null);
+        } else {
+          selectSession(nextSession);
+        }
+      } else {
+        setResult(null);
+        setInput('');
+      }
+      if (typeof window !== 'undefined') {
+        window.history.replaceState(null, "", nextId ? "#" + nextId : window.location.pathname);
+      }
     }
-    fetch(`/api/sessions/${id}`, { method: 'DELETE' }).catch(() => {});
+
+    try {
+      await fetch(`/api/sessions/${id}`, { method: 'DELETE' });
+    } catch { /* best-effort */ }
     setDeleteConfirmId(null);
     toast.success('Session deleted');
   };
+
+  const deleteSession = confirmDelete;
 
   const startRename = (s: SessionItem) => {
     setRenamingId(s.id);
@@ -184,7 +273,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
         }
       } catch { /* best-effort */ }
     } else if (id === activeSessionId) {
-      base = { ...base, input, result: result || undefined };
+      base = { ...base, input, result: result || undefined, loaded: true };
     }
 
     await persistSession({ ...base, title: trimmed, updatedAt: new Date().toISOString() });
@@ -203,11 +292,32 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
       const res = await fetch(`/api/sessions/${s.id}`);
       if (!res.ok) throw new Error();
       const detail = await res.json();
-      const hydrated: SessionItem = { ...s, input: detail.data?.input || '', result: detail.data?.result || null, loaded: true };
+      const hydratedInput = detail.data?.input || '';
+      const hydratedResult = detail.data?.result || null;
+      const hydrated: SessionItem = {
+        ...s,
+        input: hydratedInput,
+        result: hydratedResult,
+        loaded: true,
+      };
       setSessions(prev => prev.map(x => x.id === s.id ? hydrated : x));
-      setResult(hydrated.result || null);
-      setInput('');
+      setResult(hydratedResult);
+      setInput(hydratedInput);
     } catch {
+      try {
+        const stored = localStorage.getItem(LOCAL_FALLBACK_KEY);
+        if (stored) {
+          const locals: SessionItem[] = JSON.parse(stored);
+          const found = locals.find(x => x.id === s.id);
+          if (found) {
+            const hydrated: SessionItem = { ...s, input: found.input || '', result: found.result || null, loaded: true };
+            setSessions(prev => prev.map(x => x.id === s.id ? hydrated : x));
+            setResult(hydrated.result || null);
+            setInput(hydrated.input || '');
+            return;
+          }
+        }
+      } catch { /* ignore */ }
       toast.error('Failed to load session');
     }
   };
@@ -259,8 +369,11 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
       // Keep the session's original title once set; only the very first generate names it.
       const existing = sessions.find(s => s.id === activeSessionId);
       const title = existing?.title || resData.result.feature_name || text.slice(0, 60);
-      const id = activeSessionId || crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
+      const id = activeSessionId || (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
       setActiveSessionId(id);
+      if (typeof window !== 'undefined') {
+        window.history.replaceState(null, "", "#" + id);
+      }
       await persistSession({ id, title, updatedAt: new Date().toISOString(), input: text, result: resData.result, loaded: true });
 
       clear();
