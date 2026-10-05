@@ -9,6 +9,8 @@ import type { UnifiedQaArtifacts, UnifiedQaIntent, UnifiedQaSession } from "@/ty
 import toast from "react-hot-toast";
 import TestCaseTable from "@/components/TestCaseTable";
 import ScriptViewer from "@/components/ScriptViewer";
+import ScriptDiffViewer from "@/components/ScriptDiffViewer";
+import { generatePlaywrightConfig } from "@/lib/playwrightConfig";
 import { GenerateResponse, ScriptFile, TestCase } from "@/types";
 import {
   Clock,
@@ -29,6 +31,10 @@ import {
   Copy,
   FlaskConical,
   Sparkles,
+  Maximize2,
+  ChevronDown,
+  ChevronUp,
+  Wrench,
 } from "lucide-react";
 
 // ── types ──────────────────────────────────────────────────────────────────
@@ -59,6 +65,51 @@ interface UploadedFile {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 const GEN_SESSIONS_STORAGE = "snaptest_generate_sessions_v1";
+const ACTIVE_SESSION_STORAGE = "snaptest_generate_active_session_id";
+
+function sanitizeSession(session: GenSession): GenSession {
+  const defaultArtifacts: UnifiedQaArtifacts = {
+    cases: [],
+    playwright: [],
+    gherkin: "",
+    tab: "cases",
+    selectedIds: [],
+    runStates: {},
+    progress: [],
+  };
+
+  const artifacts: UnifiedQaArtifacts = {
+    ...defaultArtifacts,
+    ...(session.artifacts || {}),
+  };
+
+  const hasAnyCases = Boolean(artifacts.cases && artifacts.cases.length > 0);
+
+  const messages = (session.messages || []).map((m): GenMessage => {
+    if (m.status === "generating") {
+      const hasResultCases = Boolean(m.result?.test_cases && m.result.test_cases.length > 0);
+      if (m.result || hasResultCases || hasAnyCases) {
+        return {
+          ...m,
+          status: "complete",
+        };
+      }
+      return {
+        ...m,
+        status: "error",
+        content:
+          "Generation was interrupted (browser was reloaded or closed). You can generate again or enter a new request below.",
+      };
+    }
+    return m;
+  });
+
+  return {
+    ...session,
+    artifacts,
+    messages,
+  };
+}
 
 function readStoredObject(key: string): Record<string, string> {
   try {
@@ -153,12 +204,16 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
   const [playwrightScripts, setPlaywrightScripts] = useState<ScriptFile[] | null>(null);
   const [gherkinContent, setGherkinContent] = useState<string | null>(null);
   const [generatingScript, setGeneratingScript] = useState<"playwright" | "gherkin" | null>(null);
+  const [scriptFramework, setScriptFramework] = useState<"playwright" | "cypress">("playwright");
+  const [scriptLanguage, setScriptLanguage] = useState<"typescript" | "javascript">("typescript");
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [confirmation, setConfirmation] = useState<"repair" | "jira" | "aksora" | null>(null);
+  const [isFullModalOpen, setIsFullModalOpen] = useState(false);
+  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
 
-  const serverSessions = useServerSessions<GenSession>("unified-qa-chat", GEN_SESSIONS_STORAGE);
+  const serverSessions = useServerSessions<GenSession>("unified-qa-chat", "snaptest_generate_summaries_cache_v1");
 
   // ── load sessions ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -167,16 +222,40 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       if (saved) {
         const parsed = JSON.parse(saved);
         if (!Array.isArray(parsed)) throw new Error("Invalid saved sessions");
-        setSessions(parsed);
-        // Read URL hash for session ID jump
-        const hashSessionId = window.location.hash.replace("#", "");
-        const targetId = hashSessionId && parsed.find(s => s.id === hashSessionId) 
-          ? hashSessionId 
-          : null; // Always blank start unless coming from a deep link
+        const sanitized = parsed.map(sanitizeSession);
+        setSessions(sanitized);
+
+        // Read URL hash or localStorage for active session restoration
+        const hashSessionId = typeof window !== "undefined" ? window.location.hash.replace("#", "") : "";
+        const storedSessionId = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_SESSION_STORAGE) : null;
+
+        const targetId = (hashSessionId && sanitized.some((s) => s.id === hashSessionId))
+          ? hashSessionId
+          : (storedSessionId && sanitized.some((s) => s.id === storedSessionId))
+          ? storedSessionId
+          : (sanitized[0]?.id || null);
+
         setActiveSessionId(targetId);
       }
     } catch {}
   }, []);
+
+  // Sync activeSessionId with localStorage and URL hash
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (activeSessionId) {
+      try { localStorage.setItem(ACTIVE_SESSION_STORAGE, activeSessionId); } catch {}
+      const currentHash = window.location.hash.replace("#", "");
+      if (currentHash !== activeSessionId) {
+        window.history.replaceState(null, "", "#" + activeSessionId);
+      }
+    } else {
+      try { localStorage.removeItem(ACTIVE_SESSION_STORAGE); } catch {}
+      if (window.location.hash) {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    }
+  }, [activeSessionId]);
 
   const saveSessions = (next: GenSession[], bump?: GenSession) => {
     let ordered = next;
@@ -198,18 +277,153 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
   useEffect(() => {
     if (!serverSessions.isAuthed || serverSessions.loading) return;
-    void Promise.all(serverSessions.sessions.map(async summary => {
+    void Promise.all(serverSessions.sessions.map(async (summary) => {
       try { return await serverSessions.fetchSessionData(summary.id); } catch { return null; }
-    })).then(remote => {
-      const loaded = remote.filter((s): s is GenSession => !!s && Array.isArray(s.messages));
-      if (loaded.length) setSessions(loaded);
+    })).then((remote) => {
+      const loaded = remote
+        .filter((s): s is GenSession => !!s && Array.isArray(s.messages))
+        .map(sanitizeSession);
+
+      if (!loaded.length) return;
+
+      setSessions((currentLocal) => {
+        const merged: GenSession[] = [];
+        const processedIds = new Set<string>();
+
+        // Merge local with remote
+        for (const loc of currentLocal) {
+          processedIds.add(loc.id);
+          const rem = loaded.find((r) => r.id === loc.id);
+          if (!rem) {
+            merged.push(loc);
+          } else {
+            const locCases = loc.artifacts?.cases?.length || 0;
+            const remCases = rem.artifacts?.cases?.length || 0;
+            const locComplete = loc.messages?.some((m) => m.status === "complete") || false;
+            const remComplete = rem.messages?.some((m) => m.status === "complete") || false;
+
+            if ((locComplete || locCases > 0) && (!remComplete || locCases > remCases)) {
+              // Local version has completed cases / messages or richer state; keep local and sync to server
+              merged.push(loc);
+              void serverSessions.saveToServer(loc.id, loc.title, loc).catch(() => {});
+            } else {
+              merged.push(rem);
+            }
+          }
+        }
+
+        // Add any remote-only sessions
+        for (const rem of loaded) {
+          if (!processedIds.has(rem.id)) {
+            merged.push(rem);
+            processedIds.add(rem.id);
+          }
+        }
+
+        try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(merged)); } catch {}
+
+        // If activeSessionId is still null and sessions exist, select the first session!
+        setActiveSessionId((prevId) => prevId || (merged[0]?.id ?? null));
+
+        return merged;
+      });
     });
   }, [serverSessions.isAuthed, serverSessions.loading, serverSessions.sessions]);
 
   // ── derived ─────────────────────────────────────────────────────────────
   const activeSession = sessions.find((s) => s.id === activeSessionId) ?? null;
   const messages = activeSession?.messages ?? [];
-  const activeResult = [...messages].reverse().find((m) => m.result)?.result ?? null;
+  const rawActiveResult = [...messages].reverse().find((m) => m.result)?.result ?? null;
+  const activeResult: GenerateResponse | null = rawActiveResult || (
+    activeSession?.artifacts?.cases && activeSession.artifacts.cases.length > 0
+      ? {
+          url: extractFirstUrl(activeSession.messages.find((m) => m.role === "user")?.content || "") || "",
+          page_title: activeSession.title || "Generated Tests",
+          elements_found: 0,
+          test_case_table: "",
+          test_cases: activeSession.artifacts.cases as TestCase[],
+          scripts: (activeSession.artifacts.playwright as ScriptFile[]) || [],
+        }
+      : null
+  );
+  const selectedCount = activeSession?.artifacts?.selectedIds?.length || 0;
+
+  const recoveredSessionsRef = useRef<Set<string>>(new Set());
+
+  // Automatic history recovery for sessions that lost cases
+  useEffect(() => {
+    if (!activeSession || isLoading) return;
+    const casesCount = activeSession.artifacts?.cases?.length || 0;
+    if (casesCount > 0) return;
+    if (recoveredSessionsRef.current.has(activeSession.id)) return;
+
+    const firstUserMsg = activeSession.messages?.find((m) => m.role === "user");
+    if (!firstUserMsg) return;
+    const urlInMsg = extractFirstUrl(firstUserMsg.content);
+    if (!urlInMsg) return;
+
+    recoveredSessionsRef.current.add(activeSession.id);
+
+    void (async () => {
+      try {
+        const res = await fetch(`/api/history?search=${encodeURIComponent(urlInMsg)}&limit=5`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const items = data.items || [];
+        if (!items.length) return;
+
+        const match = items.find((it: any) => it.url && (it.url.includes(urlInMsg) || urlInMsg.includes(it.url))) || items[0];
+        if (!match?.id) return;
+
+        const detailRes = await fetch(`/api/history/${encodeURIComponent(match.id)}`);
+        if (!detailRes.ok) return;
+        const detail = await detailRes.json();
+
+        if (detail.test_cases && Array.isArray(detail.test_cases) && detail.test_cases.length > 0) {
+          const clientCases = withTestCaseClientIds(detail.test_cases);
+          const scripts = (detail.scripts || []) as ScriptFile[];
+          const recoveredResult: GenerateResponse = {
+            url: detail.url || urlInMsg,
+            page_title: detail.page_title || activeSession.title || "Restored Tests",
+            elements_found: detail.elements_found || 0,
+            test_case_table: detail.test_case_table || "",
+            test_cases: clientCases,
+            scripts: scripts,
+          };
+
+          setSessions((prev) => {
+            const updated = prev.map((s) => {
+              if (s.id !== activeSession.id) return s;
+              const nextArtifacts: UnifiedQaArtifacts = {
+                playwright: scripts.length ? scripts : (s.artifacts?.playwright || []),
+                gherkin: s.artifacts?.gherkin || "",
+                tab: "cases",
+                selectedIds: s.artifacts?.selectedIds || [],
+                runStates: s.artifacts?.runStates || {},
+                progress: s.artifacts?.progress || [],
+                ...s.artifacts,
+                cases: clientCases,
+              };
+              const updatedMessages = s.messages.map((m) => {
+                if (m.role === "assistant" && !m.result) {
+                  return { ...m, status: "complete" as const, result: recoveredResult };
+                }
+                return m;
+              });
+              const updatedSession = { ...s, messages: updatedMessages, artifacts: nextArtifacts, updatedAt: fmtDate() };
+              void serverSessions.saveToServer(s.id, s.title, updatedSession).catch(() => {});
+              return updatedSession;
+            });
+            try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+            return updated;
+          });
+          toast.success(`Recovered ${clientCases.length} test cases from history!`);
+        }
+      } catch {
+        // Recovery failed silently
+      }
+    })();
+  }, [activeSession?.id, activeSession?.artifacts?.cases?.length, isLoading]);
 
   // reset script tabs when session changes
   useEffect(() => {
@@ -231,6 +445,16 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 180)}px`;
   }, [inputText]);
+
+  // close modal on escape key
+  useEffect(() => {
+    if (!isFullModalOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsFullModalOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isFullModalOpen]);
 
   // ── file handling ────────────────────────────────────────────────────────
   const processFile = useCallback(async (file: File) => {
@@ -291,9 +515,11 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
   const confirmDelete = () => {
     if (!deleteConfirmId) return;
-    const next = sessions.filter((s) => s.id !== deleteConfirmId);
+    const deletingId = deleteConfirmId;
+    const next = sessions.filter((s) => s.id !== deletingId);
     saveSessions(next);
-    if (activeSessionId === deleteConfirmId) setActiveSessionId(next[0]?.id ?? null);
+    void serverSessions.deleteFromServer(deletingId).catch(() => {});
+    if (activeSessionId === deletingId) setActiveSessionId(next[0]?.id ?? null);
     toast.success("Session deleted");
     setDeleteConfirmId(null);
   };
@@ -315,8 +541,11 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     if (!aiProvider || !aiModel) { toast.error("Select AI Provider & Model in AI Settings (top-right) first."); return; }
 
     const intent = classifyUnifiedQaIntent(inputText) as UnifiedQaIntent;
-    if ((intent === "generate_playwright" || intent === "generate_gherkin") && activeResult) {
-      await handleScriptGeneration(intent === "generate_gherkin" ? "gherkin" : "playwright");
+    const isCypressIntent = /\bcypress\b/i.test(inputText);
+    if ((intent === "generate_playwright" || intent === "generate_gherkin" || isCypressIntent) && activeResult) {
+      if (isCypressIntent) setScriptFramework("cypress");
+      else if (intent === "generate_playwright") setScriptFramework("playwright");
+      await handleScriptGeneration(intent === "generate_gherkin" ? "gherkin" : isCypressIntent ? "cypress" : "playwright");
       setInputText("");
       return;
     }
@@ -428,9 +657,38 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
           toast.success(`🧠 Aturan baru disimpan: "${chatData.remember_rule.slice(0, 60)}..."`, { duration: 5000 });
         }
 
-        updatePlaceholder(chatData.reply || "Done.", { status: "complete" });
+        const replyText = chatData.reply || "Done.";
+        updatePlaceholder(replyText, { status: "complete" });
+
+        setSessions((prev) => {
+          const updated = prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const updatedMessages = s.messages.map((m) =>
+              m.id === aiPlaceholder.id ? { ...m, content: replyText, status: "complete" as const } : m
+            );
+            const updatedSession: GenSession = { ...s, messages: updatedMessages, updatedAt: fmtDate() };
+            void serverSessions.saveToServer(sessionId, updatedSession.title, updatedSession).catch(() => {});
+            return updatedSession;
+          });
+          try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+          return updated;
+        });
       } catch (err: any) {
-        updatePlaceholder(`⚠️ ${err.message || "Failed to get AI response"}`, { status: "error" });
+        const errText = `⚠️ ${err.message || "Failed to get AI response"}`;
+        updatePlaceholder(errText, { status: "error" });
+        setSessions((prev) => {
+          const updated = prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const updatedMessages = s.messages.map((m) =>
+              m.id === aiPlaceholder.id ? { ...m, content: errText, status: "error" as const } : m
+            );
+            const updatedSession: GenSession = { ...s, messages: updatedMessages, updatedAt: fmtDate() };
+            void serverSessions.saveToServer(sessionId, updatedSession.title, updatedSession).catch(() => {});
+            return updatedSession;
+          });
+          try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+          return updated;
+        });
         toast.error(err.message || "Chat failed");
       } finally {
         setIsLoading(false);
@@ -535,7 +793,22 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         const updated = prev.map((s) => {
           if (s.id !== sessionId) return s;
           const cases = withTestCaseClientIds(result!.test_cases || []);
-          return { ...s, messages: s.messages.map((m) => (m.id === aiPlaceholder.id ? finalMsg : m)), artifacts: { cases, playwright: result!.scripts || [], gherkin: "", tab: "cases" as const, selectedIds: [], runStates: {}, progress } };
+          const updatedSession: GenSession = {
+            ...s,
+            updatedAt: fmtDate(),
+            messages: s.messages.map((m) => (m.id === aiPlaceholder.id ? finalMsg : m)),
+            artifacts: {
+              cases,
+              playwright: result!.scripts || [],
+              gherkin: "",
+              tab: "cases" as const,
+              selectedIds: [],
+              runStates: {},
+              progress,
+            },
+          };
+          void serverSessions.saveToServer(sessionId, updatedSession.title, updatedSession).catch(() => {});
+          return updatedSession;
         });
         try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
         return updated;
@@ -543,7 +816,22 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
     } catch (err: any) {
       if (err.name === "AbortError") {
-        setSessions(prev => prev.map(s => s.id !== sessionId ? s : { ...s, messages: s.messages.map(m => m.id === aiPlaceholder.id ? { ...m, content: "Generation cancelled.", status: "error" as const } : m) }));
+        setSessions((prev) => {
+          const updated = prev.map((s) => {
+            if (s.id !== sessionId) return s;
+            const updatedSession: GenSession = {
+              ...s,
+              updatedAt: fmtDate(),
+              messages: s.messages.map((m) =>
+                m.id === aiPlaceholder.id ? { ...m, content: "Generation cancelled.", status: "error" as const } : m
+              ),
+            };
+            void serverSessions.saveToServer(sessionId, updatedSession.title, updatedSession).catch(() => {});
+            return updatedSession;
+          });
+          try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+          return updated;
+        });
         return;
       }
       const errMsg = err.message || "Generation failed";
@@ -551,12 +839,15 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       setSessions((prev) => {
         const updated = prev.map((s) => {
           if (s.id !== sessionId) return s;
-          return {
+          const updatedSession: GenSession = {
             ...s,
+            updatedAt: fmtDate(),
             messages: s.messages.map((m) =>
               m.id === aiPlaceholder.id ? { ...m, content: `Error: ${errMsg}`, status: "error" as const } : m
             ),
           };
+          void serverSessions.saveToServer(sessionId, updatedSession.title, updatedSession).catch(() => {});
+          return updatedSession;
         });
         try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
         return updated;
@@ -568,28 +859,57 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
   };
 
   // ── on-demand script generation ──────────────────────────────────────────
-  const handleScriptGeneration = async (type: "playwright" | "gherkin") => {
-    if (!activeResult?.test_cases?.length) { toast.error("No test cases available to generate scripts."); return; }
-    setGeneratingScript(type);
+  const handleScriptGeneration = async (type?: "playwright" | "cypress" | "gherkin") => {
+    const allCases = (activeSession?.artifacts?.cases && activeSession.artifacts.cases.length > 0)
+      ? activeSession.artifacts.cases
+      : (activeResult?.test_cases || []);
+
+    if (!allCases.length) {
+      toast.error("No test cases available to generate scripts.");
+      return;
+    }
+
+    const fw = type === "gherkin" ? "gherkin" : (type || scriptFramework);
+    if (fw === "cypress") setScriptFramework("cypress");
+    else if (fw === "playwright") setScriptFramework("playwright");
+
+    const selectedIds = activeSession?.artifacts?.selectedIds || [];
+    const selectedCases = allCases.filter(tc => selectedIds.includes((tc as any).clientId || String(tc.number)));
+    const hasSelection = selectedIds.length > 0 && selectedCases.length > 0;
+    const targetCases = hasSelection ? selectedCases : allCases;
+
+    const fwLabel = fw === "cypress" ? "Cypress" : fw === "gherkin" ? "Gherkin" : "Playwright";
+    const langLabel = scriptLanguage === "javascript" ? "JavaScript" : "TypeScript";
+    const scopeLabel = hasSelection ? `(${targetCases.length} selected)` : "(All)";
+    const scopeDescription = hasSelection ? `for ${targetCases.length} selected test case(s)` : "for all test cases";
+
+    setGeneratingScript(fw === "gherkin" ? "gherkin" : "playwright");
 
     const userMsg: GenMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: type === "playwright" ? "Generate Playwright scripts for these test cases." : "Generate Gherkin feature file for these test cases.",
+      content: fw === "gherkin"
+        ? `Generate Gherkin feature file ${scopeDescription}.`
+        : `Generate ${fwLabel} (${langLabel}) scripts ${scopeDescription}.`,
       timestamp: fmtTime(),
     };
     const aiPlaceholder: GenMessage = {
       id: crypto.randomUUID(),
       role: "assistant",
-      content: `Generating ${type === "playwright" ? "Playwright TypeScript scripts" : "Gherkin feature file"}...`,
+      content: fw === "gherkin"
+        ? `Generating Gherkin feature file ${scopeLabel}...`
+        : `Generating ${fwLabel} ${langLabel} scripts ${scopeLabel}...`,
       status: "generating",
       timestamp: fmtTime(),
     };
 
     setSessions((prev) => {
-      const updated = prev.map((s) =>
-        s.id === activeSessionId ? { ...s, messages: [...s.messages, userMsg, aiPlaceholder] } : s
-      );
+      const updated = prev.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        const updatedSession = { ...s, messages: [...s.messages, userMsg, aiPlaceholder], updatedAt: fmtDate() };
+        void serverSessions.saveToServer(updatedSession.id, updatedSession.title, updatedSession).catch(() => {});
+        return updatedSession;
+      });
       try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
       return updated;
     });
@@ -597,46 +917,63 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     try {
       const aiPayload = getAiRequestPayload(aiProvider, aiModel);
 
-      if (type === "playwright") {
+      if (fw === "playwright" || fw === "cypress") {
         const res = await fetch("/api/generate/script", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            test_cases: activeResult.test_cases,
-            framework: "playwright",
-            language: "typescript",
+            url: activeResult?.url,
+            user_context: activeResult?.page_title,
+            test_cases: targetCases,
+            framework: fw,
+            language: scriptLanguage,
             ...aiPayload,
           }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.detail || "Script generation failed");
 
-        const scripts: ScriptFile[] = data.scripts.map((s: any) => ({
+        const scripts: ScriptFile[] = (data.scripts || []).map((s: any) => ({
           file_name: s.file_name,
           script_location: s.script_location,
-          content: s.code,
+          content: s.content || s.code || "",
         }));
         setPlaywrightScripts(scripts);
         setWorkspaceTab("playwright");
 
         setSessions((prev) => {
-          const updated = prev.map((s) =>
-            s.id !== activeSessionId ? s : {
+          const updated = prev.map((s) => {
+            if (s.id !== activeSessionId) return s;
+            const updatedSession: GenSession = {
               ...s,
+              updatedAt: fmtDate(),
               messages: s.messages.map((m) =>
                 m.id === aiPlaceholder.id
-                  ? { ...m, content: `Playwright scripts ready! Generated ${scripts.length} script file(s).`, status: "complete" as const }
+                  ? { ...m, content: `${fwLabel} (${langLabel}) scripts ready! Generated ${scripts.length} script file(s) ${scopeLabel}.`, status: "complete" as const }
                   : m
               ),
-            }
-          );
+              artifacts: {
+                cases: [],
+                gherkin: "",
+                selectedIds: [],
+                runStates: {},
+                progress: [],
+                ...s.artifacts,
+                playwright: scripts,
+                tab: "playwright" as const,
+              },
+            };
+            void serverSessions.saveToServer(updatedSession.id, updatedSession.title, updatedSession).catch(() => {});
+            return updatedSession;
+          });
           try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
           return updated;
         });
+        toast.success(`Generated ${scripts.length} ${fwLabel} script(s)!`);
       } else {
-        // gherkin: build from test_cases locally (no dedicated endpoint needed)
+        // gherkin: build from targetCases locally (no dedicated endpoint needed)
         const lines: string[] = ["Feature: Generated Test Scenarios\n"];
-        for (const tc of activeResult.test_cases!) {
+        for (const tc of targetCases) {
           lines.push(`  Scenario: ${tc.name}`);
           if (tc.pre_condition) lines.push(`    Given ${tc.pre_condition}`);
           for (const step of tc.test_steps || []) lines.push(`    When ${step}`);
@@ -648,31 +985,50 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         setWorkspaceTab("gherkin");
 
         setSessions((prev) => {
-          const updated = prev.map((s) =>
-            s.id !== activeSessionId ? s : {
+          const updated = prev.map((s) => {
+            if (s.id !== activeSessionId) return s;
+            const updatedSession: GenSession = {
               ...s,
+              updatedAt: fmtDate(),
               messages: s.messages.map((m) =>
                 m.id === aiPlaceholder.id
-                  ? { ...m, content: "Gherkin feature file ready!", status: "complete" as const }
+                  ? { ...m, content: `Gherkin feature file ready ${scopeLabel}!`, status: "complete" as const }
                   : m
               ),
-            }
-          );
+              artifacts: {
+                cases: [],
+                playwright: [],
+                selectedIds: [],
+                runStates: {},
+                progress: [],
+                ...s.artifacts,
+                gherkin: feature,
+                tab: "gherkin" as const,
+              },
+            };
+            void serverSessions.saveToServer(updatedSession.id, updatedSession.title, updatedSession).catch(() => {});
+            return updatedSession;
+          });
           try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
           return updated;
         });
+        toast.success("Generated Gherkin feature file!");
       }
     } catch (err: any) {
       toast.error(err.message || "Script generation failed");
       setSessions((prev) => {
-        const updated = prev.map((s) =>
-          s.id !== activeSessionId ? s : {
+        const updated = prev.map((s) => {
+          if (s.id !== activeSessionId) return s;
+          const updatedSession: GenSession = {
             ...s,
+            updatedAt: fmtDate(),
             messages: s.messages.map((m) =>
               m.id === aiPlaceholder.id ? { ...m, content: `Error: ${err.message}`, status: "error" as const } : m
             ),
-          }
-        );
+          };
+          void serverSessions.saveToServer(updatedSession.id, updatedSession.title, updatedSession).catch(() => {});
+          return updatedSession;
+        });
         try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
         return updated;
       });
@@ -802,6 +1158,8 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     if (playwrightScripts) {
       const dir = zip.folder("playwright");
       for (const s of playwrightScripts) dir?.file(s.file_name, s.content);
+      const configContent = generatePlaywrightConfig(activeResult.url);
+      zip.file("playwright.config.ts", configContent);
     }
     if (gherkinContent) zip.file("scenarios.feature", gherkinContent);
     const blob = await zip.generateAsync({ type: "blob" });
@@ -997,46 +1355,140 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                         ? "bg-indigo-600 text-white rounded-br-none"
                         : msg.status === "error"
                         ? "bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300"
+                        : msg.status === "generating" && !isLoading
+                        ? "bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200"
                         : "bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-bl-none text-slate-700 dark:text-slate-200"
                     }`}
                   >
                     {msg.status === "generating" ? (
-                      <span className="flex items-center gap-1.5">
-                        <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
-                        {msg.content}
-                      </span>
+                      isLoading ? (
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />
+                          {msg.content}
+                        </span>
+                      ) : (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-1.5 font-medium text-amber-700 dark:text-amber-300">
+                            <span>⚠️ Generation interrupted</span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 dark:text-slate-300">
+                            The generation was interrupted (browser was reloaded or closed). You can generate again or enter a new request below.
+                          </p>
+                        </div>
+                      )
                     ) : (
                       <span className="whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />
                     )}
                   </div>
 
                   {msg.status === "complete" && msg.result && (
-                    <div className="flex flex-wrap gap-1 mt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <button
                         type="button"
-                        onClick={() => { setWorkspaceTab("cases"); }}
-                        className="text-[11px] px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1"
+                        onClick={() => { setWorkspaceTab("cases"); setIsFullModalOpen(true); }}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition flex items-center gap-1.5 shadow-sm"
+                        title="View Generated Test Cases in Full Width Popup"
                       >
-                        <FolderOpen className="w-3 h-3" /> Cases
+                        <Maximize2 className="w-3.5 h-3.5" />
+                        <span>View Test Cases ({msg.result.test_cases?.length || 0})</span>
                       </button>
-                      {!playwrightScripts && (
+
+                      {/* Language & Framework Controls */}
+                      <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs">
+                        <div className="flex items-center bg-white dark:bg-slate-700 rounded-md p-0.5 shadow-xs border border-slate-200 dark:border-slate-600">
+                          <button
+                            type="button"
+                            onClick={() => setScriptFramework("playwright")}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                              scriptFramework === "playwright"
+                                ? "bg-indigo-600 text-white"
+                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
+                            }`}
+                          >
+                            Playwright
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setScriptFramework("cypress")}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                              scriptFramework === "cypress"
+                                ? "bg-indigo-600 text-white"
+                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
+                            }`}
+                          >
+                            Cypress
+                          </button>
+                        </div>
+                        <div className="flex items-center bg-white dark:bg-slate-700 rounded-md p-0.5 shadow-xs border border-slate-200 dark:border-slate-600">
+                          <button
+                            type="button"
+                            onClick={() => setScriptLanguage("typescript")}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                              scriptLanguage === "typescript"
+                                ? "bg-indigo-600 text-white"
+                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
+                            }`}
+                          >
+                            TS
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setScriptLanguage("javascript")}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                              scriptLanguage === "javascript"
+                                ? "bg-indigo-600 text-white"
+                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
+                            }`}
+                          >
+                            JS
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Script Generation Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleScriptGeneration(scriptFramework)}
+                        disabled={!!generatingScript}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1 font-medium border border-slate-200 dark:border-slate-700"
+                        title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
+                      >
+                        {generatingScript === "playwright" ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
+                        )}
+                      </button>
+
+                      {playwrightScripts && (
                         <button
                           type="button"
-                          onClick={() => handleScriptGeneration("playwright")}
-                          disabled={!!generatingScript}
-                          className="text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
+                          onClick={() => { setWorkspaceTab("playwright"); setIsFullModalOpen(true); }}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1"
+                          title="View scripts in Full Width Popup"
                         >
-                          + Playwright
+                          <Maximize2 className="w-3 h-3" /> Scripts ({playwrightScripts.length})
                         </button>
                       )}
-                      {!gherkinContent && (
+
+                      {!gherkinContent ? (
                         <button
                           type="button"
                           onClick={() => handleScriptGeneration("gherkin")}
                           disabled={!!generatingScript}
-                          className="text-[11px] px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-200 transition"
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1"
+                          title={selectedCount > 0 ? `Generate Gherkin for ${selectedCount} selected test cases` : "Generate Gherkin for all test cases"}
                         >
-                          + Gherkin
+                          {generatingScript === "gherkin" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ Gherkin (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => { setWorkspaceTab("gherkin"); setIsFullModalOpen(true); }}
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1"
+                          title="View Gherkin feature in Full Width Popup"
+                        >
+                          <Maximize2 className="w-3 h-3" /> Gherkin
                         </button>
                       )}
                     </div>
@@ -1051,16 +1503,38 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
         {/* Artifact Workspace — docked above composer, so the input stays pinned at the bottom */}
         {activeResult && (
-          <div className="shrink-0 max-h-[45vh] min-h-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col overflow-hidden">
-            {/* Toolbar: tabs + copy/download */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-              <div className="flex items-center gap-2 overflow-x-auto">
+          <div className={`shrink-0 ${isDockCollapsed ? "h-auto" : "max-h-[45vh]"} min-h-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col overflow-hidden transition-all duration-200`}>
+            {/* Repair Proposal Notification Banner */}
+            {activeSession?.artifacts?.repair && (
+              <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-xs shrink-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span className="font-semibold text-amber-900 dark:text-amber-200 shrink-0">
+                    Repair Proposal Ready ({Math.round((activeSession.artifacts.repair.confidence || 0.85) * 100)}% Confidence)
+                  </span>
+                  <span className="text-amber-700 dark:text-amber-300 text-[11px] truncate max-w-sm hidden sm:inline">
+                    {activeSession.artifacts.repair.rationale}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setConfirmation("repair")}
+                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs transition shadow-sm shrink-0"
+                >
+                  Review Diff & Apply Fix
+                </button>
+              </div>
+            )}
+
+            {/* Toolbar: tabs + framework/language controls + full width + copy/download + collapse toggle */}
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 shrink-0 gap-2">
+              <div className="flex items-center gap-2 overflow-x-auto min-w-0">
                 <TabBtn active={workspaceTab === "cases"} onClick={() => setWorkspaceTab("cases")}>
                   Test Cases (.xlsx)
                 </TabBtn>
                 {playwrightScripts && (
                   <TabBtn active={workspaceTab === "playwright"} onClick={() => setWorkspaceTab("playwright")}>
-                    Playwright .spec.ts
+                    {scriptFramework === "cypress" ? "Cypress Script" : "Playwright .spec.ts"} ({playwrightScripts.length})
                   </TabBtn>
                 )}
                 {gherkinContent && (
@@ -1068,9 +1542,76 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                     Gherkin .feature
                   </TabBtn>
                 )}
+
+                {/* Framework & Language Controls */}
+                <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 dark:bg-slate-800 rounded-lg text-xs ml-1 shrink-0">
+                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setScriptFramework("playwright")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptFramework === "playwright" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      Playwright
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScriptFramework("cypress")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptFramework === "cypress" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      Cypress
+                    </button>
+                  </div>
+                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setScriptLanguage("typescript")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptLanguage === "typescript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      TS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScriptLanguage("javascript")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptLanguage === "javascript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      JS
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleScriptGeneration(scriptFramework)}
+                  disabled={!!generatingScript}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition shadow-xs shrink-0"
+                  title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
+                >
+                  {generatingScript === "playwright" ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
+                  )}
+                </button>
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setIsFullModalOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition shadow-sm"
+                  title="Open Full Width Popup"
+                >
+                  <Maximize2 className="w-3.5 h-3.5" />
+                  <span>Full Width</span>
+                </button>
                 <button
                   type="button"
                   onClick={handleCopyAll}
@@ -1089,29 +1630,40 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                   <Download className="w-3.5 h-3.5" />
                   Download All
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDockCollapsed((c) => !c)}
+                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  title={isDockCollapsed ? "Expand docked panel" : "Collapse docked panel"}
+                >
+                  {isDockCollapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </button>
               </div>
             </div>
 
-            <div className="flex-1 overflow-auto min-h-0">
-              {workspaceTab === "cases" && (
-                <TestCaseTable
-                  markdown={activeResult.test_case_table || ""}
-                  testCases={activeSession?.artifacts?.cases || activeResult.test_cases}
-                  scripts={(activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult.scripts}
-                  selectedIds={activeSession?.artifacts?.selectedIds || []}
-                  runStates={activeSession?.artifacts?.runStates || {}}
-                  onCasesChange={(cases) => updateArtifacts({ cases: cases as UnifiedQaArtifacts["cases"] })}
-                  onSelectionChange={(selectedIds) => updateArtifacts({ selectedIds })}
-                  onRunStatesChange={(runStates) => updateArtifacts({ runStates })}
-                />
-              )}
-              {workspaceTab === "playwright" && playwrightScripts && (
-                <ScriptViewer scripts={playwrightScripts} />
-              )}
-              {workspaceTab === "gherkin" && gherkinContent && (
-                <GherkinViewer content={gherkinContent} />
-              )}
-            </div>
+            {!isDockCollapsed && (
+              <div className="flex-1 overflow-auto min-h-0">
+                {workspaceTab === "cases" && (
+                  <TestCaseTable
+                    markdown={activeResult.test_case_table || ""}
+                    testCases={activeSession?.artifacts?.cases || activeResult.test_cases}
+                    scripts={(activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult.scripts}
+                    selectedIds={activeSession?.artifacts?.selectedIds || []}
+                    runStates={activeSession?.artifacts?.runStates || {}}
+                    onCasesChange={(cases) => updateArtifacts({ cases: cases as UnifiedQaArtifacts["cases"] })}
+                    onSelectionChange={(selectedIds) => updateArtifacts({ selectedIds })}
+                    onRunStatesChange={(runStates) => updateArtifacts({ runStates })}
+                    onExpand={() => setIsFullModalOpen(true)}
+                  />
+                )}
+                {workspaceTab === "playwright" && playwrightScripts && (
+                  <ScriptViewer scripts={playwrightScripts} baseUrl={activeResult.url} />
+                )}
+                {workspaceTab === "gherkin" && gherkinContent && (
+                  <GherkinViewer content={gherkinContent} />
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1162,11 +1714,32 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
           </div>
       </div>
 
-      {confirmation && (
+      {confirmation === "repair" && activeSession?.artifacts?.repair && (
+        (() => {
+          const rep = activeSession.artifacts.repair;
+          const original = (activeSession.artifacts.playwright as ScriptFile[] || []).find(
+            s => activeSession.artifacts?.cases?.find(tc => tc.clientId === rep.caseId)?.file_name === s.file_name
+          ) || (activeSession.artifacts.playwright as ScriptFile[] || [])[0];
+          return (
+            <ScriptDiffViewer
+              originalScript={original?.content || ""}
+              proposedScript={rep.proposed_script}
+              fileName={original?.file_name || "test.spec.ts"}
+              rationale={rep.rationale}
+              confidence={rep.confidence}
+              analysis={rep.analysis as any}
+              onConfirm={confirmAction}
+              onCancel={() => setConfirmation(null)}
+            />
+          );
+        })()
+      )}
+
+      {confirmation && confirmation !== "repair" && (
         <div className="fixed inset-0 z-[110] grid place-items-center bg-slate-900/50 p-4" role="presentation">
           <div role="dialog" aria-modal="true" aria-labelledby="confirm-title" className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl dark:bg-slate-800">
-            <h3 id="confirm-title" className="text-lg font-bold">Confirm {confirmation === "repair" ? "repair application" : confirmation === "aksora" ? "Aksora push" : "Jira creation"}</h3>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{confirmation === "repair" ? "This replaces the stored Playwright script with the proposed repair." : confirmation === "aksora" ? "This pushes the ticket draft to Aksora using credentials from Settings." : "This creates a real Jira issue using credentials from Settings."}</p>
+            <h3 id="confirm-title" className="text-lg font-bold">Confirm {confirmation === "aksora" ? "Aksora push" : "Jira creation"}</h3>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{confirmation === "aksora" ? "This pushes the ticket draft to Aksora using credentials from Settings." : "This creates a real Jira issue using credentials from Settings."}</p>
             <div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setConfirmation(null)} className="btn-ghost">Cancel</button><button type="button" onClick={confirmAction} className="btn-primary">Confirm</button></div>
           </div>
         </div>
@@ -1195,6 +1768,219 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
               >
                 Delete Session
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Full Width Result Modal / Popup */}
+      {isFullModalOpen && activeResult && (
+        <div
+          className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-2 sm:p-4 md:p-6 animate-[fadeIn_0.15s_ease-out]"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsFullModalOpen(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="full-result-title"
+        >
+          <div className="relative w-full max-w-[98vw] h-[94vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 shrink-0 gap-3">
+              {/* Title & Info */}
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 shrink-0">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 id="full-result-title" className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">
+                      Test Generation Results
+                    </h2>
+                    {(activeSession?.artifacts?.cases?.length || activeResult.test_cases?.length) ? (
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
+                        {activeSession?.artifacts?.cases?.length || activeResult.test_cases?.length} cases
+                      </span>
+                    ) : null}
+                  </div>
+                  {activeResult.page_title && (
+                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-xl">
+                      {activeResult.page_title}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Center Tabs */}
+              <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 dark:bg-slate-800 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setWorkspaceTab("cases")}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                    workspaceTab === "cases"
+                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                  }`}
+                >
+                  Test Cases (.xlsx)
+                </button>
+                {playwrightScripts && (
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceTab("playwright")}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                      workspaceTab === "playwright"
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Playwright .spec.ts ({playwrightScripts.length})
+                  </button>
+                )}
+                {gherkinContent && (
+                  <button
+                    type="button"
+                    onClick={() => setWorkspaceTab("gherkin")}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
+                      workspaceTab === "gherkin"
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
+                    }`}
+                  >
+                    Gherkin .feature
+                  </button>
+                )}
+              </div>
+
+              {/* Right Actions & Close */}
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Framework & Language Controls */}
+                <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 dark:bg-slate-800 rounded-lg text-xs">
+                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setScriptFramework("playwright")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptFramework === "playwright" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      Playwright
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScriptFramework("cypress")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptFramework === "cypress" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      Cypress
+                    </button>
+                  </div>
+                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
+                    <button
+                      type="button"
+                      onClick={() => setScriptLanguage("typescript")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptLanguage === "typescript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      TS
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScriptLanguage("javascript")}
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
+                        scriptLanguage === "javascript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                      }`}
+                    >
+                      JS
+                    </button>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleScriptGeneration(scriptFramework)}
+                  disabled={!!generatingScript}
+                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 font-medium"
+                  title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
+                >
+                  {generatingScript === "playwright" ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
+                  )}
+                </button>
+
+                {!gherkinContent && (
+                  <button
+                    type="button"
+                    onClick={() => handleScriptGeneration("gherkin")}
+                    disabled={!!generatingScript}
+                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1"
+                    title={selectedCount > 0 ? `Generate Gherkin for ${selectedCount} selected test cases` : "Generate Gherkin for all test cases"}
+                  >
+                    {generatingScript === "gherkin" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ Gherkin (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleCopyAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition shadow-sm"
+                  title="Copy all files to clipboard"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Copy All</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadAll}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition shadow-sm"
+                  title="Download all files as ZIP"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Download All</span>
+                </button>
+
+                <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
+
+                <button
+                  type="button"
+                  onClick={() => setIsFullModalOpen(false)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  title="Close (Esc)"
+                  aria-label="Close"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-auto min-h-0 bg-slate-50/50 dark:bg-slate-950/50 p-3 sm:p-5">
+              {workspaceTab === "cases" && (
+                <TestCaseTable
+                  markdown={activeResult.test_case_table || ""}
+                  testCases={activeSession?.artifacts?.cases || activeResult.test_cases}
+                  scripts={(activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult.scripts}
+                  selectedIds={activeSession?.artifacts?.selectedIds || []}
+                  runStates={activeSession?.artifacts?.runStates || {}}
+                  onCasesChange={(cases) => updateArtifacts({ cases: cases as UnifiedQaArtifacts["cases"] })}
+                  onSelectionChange={(selectedIds) => updateArtifacts({ selectedIds })}
+                  onRunStatesChange={(runStates) => updateArtifacts({ runStates })}
+                />
+              )}
+              {workspaceTab === "playwright" && playwrightScripts && (
+                <div className="card dark:bg-slate-900 dark:border-slate-800 h-full overflow-hidden">
+                  <ScriptViewer scripts={playwrightScripts} baseUrl={activeResult.url} />
+                </div>
+              )}
+              {workspaceTab === "gherkin" && gherkinContent && (
+                <div className="card dark:bg-slate-900 dark:border-slate-800 h-full overflow-hidden">
+                  <GherkinViewer content={gherkinContent} />
+                </div>
+              )}
             </div>
           </div>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ChevronDown, Loader2, CheckCircle2, XCircle, Download, Pencil, Check, X as XIcon, Play } from "lucide-react";
+import { ChevronDown, Loader2, CheckCircle2, XCircle, Download, Pencil, Check, X as XIcon, Play, Maximize2 } from "lucide-react";
 import { TestCase, ScriptFile } from "@/types";
 import toast from "react-hot-toast";
 
@@ -63,6 +63,7 @@ interface TestCaseTableProps {
   onCasesChange?: (cases: ControlledCase[]) => void;
   onSelectionChange?: (ids: string[]) => void;
   onRunStatesChange?: (states: Record<string, RunState>) => void;
+  onExpand?: () => void;
 }
 
 const TYPE_OPTS     = ["ALL", "POSITIVE", "NEGATIVE", "EDGE", "SECURITY", "BOUNDARY"] as const;
@@ -213,7 +214,7 @@ function Stat({ label, val, color }: { label: string; val: number; color: string
   );
 }
 
-export default function TestCaseTable({ markdown, testCases, scripts, selectedIds, runStates, onCasesChange, onSelectionChange, onRunStatesChange }: TestCaseTableProps) {
+export default function TestCaseTable({ markdown, testCases, scripts, selectedIds, runStates, onCasesChange, onSelectionChange, onRunStatesChange, onExpand }: TestCaseTableProps) {
   const [typeFilter, setTypeFilter]         = useState<typeof TYPE_OPTS[number]>("ALL");
   const [statusFilter, setStatusFilter]     = useState<typeof STATUS_OPTS[number]>("ALL");
   const [priorityFilter, setPriorityFilter] = useState<typeof PRIORITY_OPTS[number]>("ALL");
@@ -316,13 +317,39 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
     <div className="card overflow-hidden">
       {/* Title row */}
       <div className="flex items-center justify-between px-5 py-2.5 border-b border-slate-100">
-        <h3 className="text-sm font-medium text-slate-700">
-          Test Case Table{" "}
+        <h3 className="text-sm font-medium text-slate-700 flex items-center gap-2">
+          <span>Test Case Table</span>
           <span className="text-slate-400 font-normal text-xs">
             ({filtered.length}{filtered.length !== cases.length ? `/${cases.length}` : ""} cases)
           </span>
+          {selectedIds && selectedIds.length > 0 && (
+            <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              {selectedIds.length} selected
+            </span>
+          )}
         </h3>
         <div className="flex items-center gap-2">
+          {selectedIds && selectedIds.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onSelectionChange?.([])}
+              className="text-xs text-slate-500 hover:text-indigo-600 font-medium px-2 py-1 rounded hover:bg-slate-100 transition"
+              title="Clear all selections"
+            >
+              Clear selection
+            </button>
+          )}
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-600 transition shadow-sm"
+              title="Open Full Width Popup"
+            >
+              <Maximize2 className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Full Width</span>
+            </button>
+          )}
           {/* Export dropdown */}
           <div className="relative">
             <button
@@ -414,7 +441,29 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
         <table className="w-full text-xs min-w-[900px]">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-100">
-              <th className="px-3 py-3"><span className="sr-only">Select</span></th>
+              <th className="px-3 py-3">
+                <input
+                  type="checkbox"
+                  aria-label="Select all filtered test cases"
+                  checked={filtered.length > 0 && filtered.every(tc => selectedIds?.includes(caseKey(tc)))}
+                  ref={el => {
+                    if (el) {
+                      const someSelected = filtered.some(tc => selectedIds?.includes(caseKey(tc)));
+                      const allSelected = filtered.length > 0 && filtered.every(tc => selectedIds?.includes(caseKey(tc)));
+                      el.indeterminate = someSelected && !allSelected;
+                    }
+                  }}
+                  onChange={e => {
+                    if (e.target.checked) {
+                      const allKeys = Array.from(new Set([...(selectedIds || []), ...filtered.map(caseKey)]));
+                      onSelectionChange?.(allKeys);
+                    } else {
+                      const filteredKeys = new Set(filtered.map(caseKey));
+                      onSelectionChange?.((selectedIds || []).filter(id => !filteredKeys.has(id)));
+                    }
+                  }}
+                />
+              </th>
               {["#", "Test Case ID", "Test Case Name", "Type", "Pre Condition", "Test Steps", "Expected Result", "Actual Result", "Status", "Priority", "Evidence"].map(h => (
                 <th key={h} className="px-4 py-3 text-left font-semibold text-slate-600 uppercase tracking-wider whitespace-nowrap">{h}</th>
               ))}

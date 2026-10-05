@@ -61,6 +61,17 @@ export async function initDB() {
   await db`CREATE INDEX IF NOT EXISTS idx_history_created_at ON history(created_at DESC)`;
   await db`CREATE INDEX IF NOT EXISTS idx_history_url ON history(url)`;
   await db`CREATE INDEX IF NOT EXISTS idx_monitor_snapshots_monitor_id ON monitor_snapshots(monitor_id)`;
+  await db`
+    CREATE TABLE IF NOT EXISTS script_cache (
+      id TEXT PRIMARY KEY,
+      cache_key TEXT NOT NULL UNIQUE,
+      script_code TEXT NOT NULL,
+      framework TEXT,
+      language TEXT,
+      created_at TEXT NOT NULL
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS idx_script_cache_key ON script_cache(cache_key)`;
 }
 
 // ponytail: initDB() isn't auto-called (tables created externally), so add a
@@ -171,10 +182,22 @@ export async function ensureSchema() {
   await db`CREATE INDEX IF NOT EXISTS idx_test_runs_history ON test_runs(history_id)`;
   await db`CREATE INDEX IF NOT EXISTS idx_test_runs_user ON test_runs(user_id)`;
 
+  // Script Caching Table
+  await db`CREATE TABLE IF NOT EXISTS script_cache (
+    id TEXT PRIMARY KEY,
+    cache_key TEXT NOT NULL UNIQUE,
+    script_code TEXT NOT NULL,
+    framework TEXT,
+    language TEXT,
+    created_at TEXT NOT NULL
+  )`;
+  await db`CREATE INDEX IF NOT EXISTS idx_script_cache_key ON script_cache(cache_key)`;
+
   // Fire-and-forget: Auto Garbage Collection
   // We do it asynchronously without awaiting so it doesn't block the request.
   db`DELETE FROM crawl_cache WHERE created_at::timestamp < NOW() - INTERVAL '48 hours'`.catch(console.error);
   db`DELETE FROM usage_log WHERE created_at::timestamp < NOW() - INTERVAL '30 days'`.catch(console.error);
+  db`DELETE FROM script_cache WHERE created_at::timestamp < NOW() - INTERVAL '30 days'`.catch(console.error);
 
   migrated = true;
 }
@@ -216,5 +239,60 @@ export async function logUsage(params: {
   } catch (err) {
     // Non-blocking: usage logging errors should never break main flow
     console.warn('[UsageLog] Failed to log usage:', err);
+  }
+}
+
+export interface CachedScript {
+  id: string;
+  cache_key: string;
+  script_code: string;
+  framework?: string;
+  language?: string;
+  created_at: string;
+}
+
+export async function getCachedScript(key: string): Promise<CachedScript | null> {
+  if (!key) return null;
+  try {
+    await ensureSchema();
+    const db = getSQL();
+    const rows = await db`
+      SELECT id, cache_key, script_code, framework, language, created_at
+      FROM script_cache
+      WHERE cache_key = ${key}
+      LIMIT 1
+    `;
+    if (rows && rows.length > 0) {
+      return rows[0] as CachedScript;
+    }
+  } catch (err) {
+    console.warn('[ScriptCache] Failed to get cached script:', err);
+  }
+  return null;
+}
+
+export async function setCachedScript(
+  key: string,
+  code: string,
+  framework: string = 'playwright',
+  language: string = 'typescript'
+): Promise<void> {
+  if (!key || !code) return;
+  try {
+    await ensureSchema();
+    const db = getSQL();
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await db`
+      INSERT INTO script_cache (id, cache_key, script_code, framework, language, created_at)
+      VALUES (${id}, ${key}, ${code}, ${framework}, ${language}, ${now})
+      ON CONFLICT (cache_key) DO UPDATE
+      SET script_code = EXCLUDED.script_code,
+          framework = EXCLUDED.framework,
+          language = EXCLUDED.language,
+          created_at = EXCLUDED.created_at
+    `;
+  } catch (err) {
+    console.warn('[ScriptCache] Failed to set cached script:', err);
   }
 }

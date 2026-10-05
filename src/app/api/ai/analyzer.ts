@@ -188,47 +188,79 @@ export function parseJSONSafe<T>(content: string): T {
 }
 
 export function getFileExtension(fw: string, lang: string): string {
-  const f = fw.toLowerCase();
-  const l = lang.toLowerCase();
-
-  if (f === 'cypress') return l === 'typescript' ? '.cy.ts' : '.cy.js';
-
-  if (f === 'selenium') {
-    if (l === 'python') return '.py';
-    if (l === 'java') return '.java';
-    if (l === 'csharp' || l === 'c#') return '.cs';
-    return '.js';
-  }
-
-  if (l === 'python') return '.py';
-  return l === 'typescript' ? '.spec.ts' : '.spec.js';
-}
-
-export function getFrameworkRules(fw: string, lang: string): string {
-  const f = fw.toLowerCase();
-  const l = lang.toLowerCase();
+  const f = (fw || '').toLowerCase().trim();
+  const l = (lang || '').toLowerCase().trim();
 
   if (f === 'cypress') {
-    return [
-      `Use Cypress with ${l === 'typescript' ? 'TypeScript' : 'JavaScript'}.`,
-      'Use describe/it, cy.visit, cy.get, cy.contains, and should/expect assertions.',
-      'Keep selectors stable and readable.',
-    ].join('\n- ');
+    return (l === 'javascript' || l === 'js') ? '.cy.js' : '.cy.ts';
   }
 
   if (f === 'selenium') {
-    return [
-      `Use Selenium WebDriver with ${lang.toUpperCase()}.`,
-      'Initialize the driver, open the URL, interact with elements, assert results, then quit the driver.',
-      `Include required Selenium imports for ${lang.toUpperCase()}.`,
-    ].join('\n- ');
+    if (l === 'python' || l === 'py') return '.py';
+    if (l === 'java') return '.java';
+    if (l === 'csharp' || l === 'c#' || l === 'cs') return '.cs';
+    return (l === 'javascript' || l === 'js') ? '.js' : '.ts';
   }
 
-  return [
-    `Use Playwright with ${lang.toUpperCase()}.`,
-    'Use the standard test runner style for the selected language.',
-    'Navigate to the URL, interact with elements, then assert the expected result.',
-  ].join('\n- ');
+  // Playwright default
+  if (l === 'python' || l === 'py') return '.py';
+  if (l === 'javascript' || l === 'js') return '.spec.js';
+  return '.spec.ts';
+}
+
+export function getFrameworkRules(fw: string, lang: string, usePom: boolean = false): string {
+  const f = (fw || '').toLowerCase().trim();
+  const l = (lang || '').toLowerCase().trim();
+  const isTs = l === 'typescript' || l === 'ts';
+
+  if (f === 'cypress') {
+    const rules = [
+      `Use Cypress with ${isTs ? 'TypeScript (.cy.ts)' : 'JavaScript (.cy.js)'}.`,
+      `Structure tests using describe(...) and it(...) blocks, using cy.visit(...), cy.get(...), cy.contains(...), and should(...)/expect(...) assertions.`,
+      isTs
+        ? 'Use proper TypeScript syntax.'
+        : 'Use pure JavaScript syntax (ES6+), NO TypeScript types, interfaces, or type annotations.',
+      'Locator resilience hierarchy: [data-testid="..."] > accessible name/aria/label > button/link text content (cy.contains) > css selector.',
+      'Locator Fallback: for resilient querying in Cypress, use multi-selector fallback in cy.get() (e.g. cy.get(\'[data-testid="submit-btn"], button[type="submit"]\').first()) or cy.contains().',
+    ];
+    if (usePom) {
+      rules.push(
+        `Page Object Model (POM): Define a dedicated Page Object class (e.g. class PageName) encapsulating element locators and user action methods, instantiate it, and execute interactions through the POM class.`
+      );
+    }
+    return rules.join('\n- ');
+  }
+
+  if (f === 'selenium') {
+    const rules = [
+      `Use Selenium WebDriver with ${lang.toUpperCase()}.`,
+      'Initialize WebDriver, open the URL, interact with elements, assert results, and ensure driver.quit().',
+      `Include required Selenium imports for ${lang.toUpperCase()}.`,
+      'Locator resilience hierarchy: By.css("[data-testid=...]") > By.id > By.name > By.xpath/By.css.',
+    ];
+    if (usePom) {
+      rules.push('Page Object Model (POM): Encapsulate page elements and actions in a Page Object class.');
+    }
+    return rules.join('\n- ');
+  }
+
+  // Playwright default
+  const rules = [
+    `Use Playwright test runner with ${isTs ? 'TypeScript (.spec.ts)' : 'JavaScript (.spec.js)'}.`,
+    `Import from '@playwright/test': import { test, expect } from '@playwright/test';`,
+    isTs
+      ? 'Use valid TypeScript syntax (e.g., async ({ page }) => { ... }).'
+      : 'Use pure JavaScript syntax only, NO TypeScript type annotations (no : Page, : string, interface, etc.).',
+    'Locator resilience hierarchy: page.getByTestId(...) > page.getByRole(...) / page.getByLabel(...) > page.getByPlaceholder(...) / page.getByText(...) > page.locator(...).',
+    'Locator Fallback with .or(): use Playwright\'s locator fallback chaining .or() where selectors may vary (e.g., page.getByTestId("submit-btn").or(page.getByRole("button", { name: /submit/i })).or(page.locator("button[type=\\"submit\\"]"))).',
+    'Always await asynchronous actions and assertions: await page.goto(...), await page.waitForLoadState("domcontentloaded"), await expect(...).toBeVisible().',
+  ];
+  if (usePom) {
+    rules.push(
+      `Page Object Model (POM): Define a dedicated Page Object class (e.g. class ViewPage) containing element locators and action methods, instantiate it in test(), and run steps via the POM instance.`
+    );
+  }
+  return rules.join('\n- ');
 }
 
 // ponytail: fast_model == same model user already chose; no hardcoded model names
@@ -362,6 +394,10 @@ Return exactly:
 }
 
 function getTargetElementRefs(pageData: PageData, testCase: any): ElementRef[] {
+  if (!pageData?.elements || !Array.isArray(pageData.elements)) {
+    return [];
+  }
+
   if (Array.isArray(testCase.relevant_indices) && testCase.relevant_indices.length > 0) {
     const indices = testCase.relevant_indices
       .map((idx: any) => Number(idx))
@@ -397,10 +433,34 @@ export async function generateScriptForTestCase(
   testCase: any,
   framework: string = 'playwright',
   language: string = 'typescript',
-  publicBaseUrl: string = ''
-): Promise<ScriptFile & { tokens_used: number }> {
+  publicBaseUrl: string = '',
+  usePom: boolean = false
+): Promise<ScriptFile & { tokens_used: number; pom_code?: string }> {
+  const fw = (framework || 'playwright').toLowerCase().trim();
+  const lang = (language || 'typescript').toLowerCase().trim();
+  const ext = getFileExtension(fw, lang);
+  const defaultFolder = fw === 'cypress' ? 'cypress/e2e' : 'tests';
+
+  // Compute canonical file name and script location
+  let fileName = testCase.file_name || '';
+  if (!fileName) {
+    const slug = (testCase.name || testCase.scenario || `test-${testCase.number || 1}`)
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').substring(0, 40);
+    fileName = `test-${testCase.number || 1}-${slug}${ext}`;
+  } else {
+    fileName = fileName.replace(/\.(spec|cy|test)\.(ts|js)$/i, '').replace(/\.(ts|js|py|cs|java)$/i, '') + ext;
+  }
+
+  let scriptLocation = testCase.script_location || '';
+  if (!scriptLocation) {
+    scriptLocation = `${defaultFolder}/${fileName}`;
+  } else {
+    const dir = scriptLocation.includes('/') ? scriptLocation.slice(0, scriptLocation.lastIndexOf('/')) : defaultFolder;
+    scriptLocation = `${dir}/${fileName}`;
+  }
+
   // ponytail: caller decides model (stage2Model); no forced downgrade here
-  const frameworkRules = getFrameworkRules(framework, language);
+  const frameworkRules = getFrameworkRules(fw, lang, usePom);
 
   // Stage 2 sends only relevant elements with selectors.
   const targetElementRefs = getTargetElementRefs(pageData, testCase);
@@ -411,42 +471,55 @@ export async function generateScriptForTestCase(
     : (testCase.input || '');
   const tcSummary = [
     `${testCase.number}. ${testCase.name || testCase.scenario}`,
-    `pre-condition: ${testCase.pre_condition || ''}`,
+    `pre-condition: ${testCase.pre_condition || 'None'}`,
     `steps: ${steps}`,
     `expected: ${testCase.expected_result}`,
-    `file: ${testCase.file_name}`,
+    `file: ${fileName}`,
   ].join(' | ');
 
   const scrSystem = 'You are a senior QA automation engineer. Return valid JSON only. English code only. No markdown.';
 
+  const pomInstruction = usePom
+    ? `Page Object Model (POM) requirement:
+- Define a reusable Page Object class representing this page/view.
+- Encapsulate locators (using the resilient locator hierarchy) as properties or getters.
+- Encapsulate user interaction methods (e.g. fillForm, submit, verify).
+- In the test block, instantiate the Page Object and execute the test steps using POM methods.
+- The generated code must be completely self-contained and ready to execute.`
+    : `Direct script requirement:
+- Write a clean, self-contained test script executing the test steps directly.`;
+
   const scrUser =
-`Create one ${framework.toUpperCase()} ${language.toUpperCase()} test script.
+`Create one ${fw.toUpperCase()} (${lang.toUpperCase()}) test script.
 
-URL: ${pageData.url}
-Goal: ${userContext}
+Target URL: ${pageData?.url || ''}
+Context: ${userContext || ''}
 
-Elements:
-${elementsStr}
+Available DOM Elements:
+${elementsStr || 'No specific DOM elements captured. Infer robust accessible locators from scenario steps.'}
 
-Test case:
+Test Case Details:
 ${tcSummary}
 
-Framework rules:
+Framework Rules:
 - ${frameworkRules}
 
-Script rules:
+Locator & Resilience Rules:
+- Prioritize resilient locators in this strict order: data-testid > accessible role/label > placeholder/text > css selector.
+- Use resilient fallback mechanisms:
+  * In Playwright: chain .or() for alternative locators (e.g., page.getByTestId('submit').or(page.getByRole('button', { name: /submit/i }))).
+  * In Cypress: use multi-selector fallback in cy.get() (e.g., cy.get('[data-testid="submit"], button[type="submit"]')).
 - Navigate to URL first.
-- Use provided selectors only.
-- Prefer stable selectors: id > name > data-testid > placeholder > css.
 - Use concrete input values from the test case.
 - Assert visible UI result, text, error state, URL, or value where relevant.
 - Do not test unrelated elements.
-- Keep script 15-30 lines.
-- No comments unless required.
+- Keep script concise, clean, and production-ready without unnecessary comments.
 - Escape newlines and quotes correctly inside JSON.
 
+${pomInstruction}
+
 Return exactly:
-{"file_name":"${testCase.file_name}","script_location":"${testCase.script_location}","content":"<script>"}`;
+{"file_name":"${fileName}","script_location":"${scriptLocation}","content":"<script>"${usePom ? ',"pom_code":"<optional separate POM class definition>"' : ''}}`;
 
   const scrUsage = { totalTokens: 0 };
   let scrResult = '';
@@ -476,13 +549,86 @@ Return exactly:
     throw new Error(`Failed to generate script for test case ${testCase.number}: ${lastErr?.message || lastErr}`);
   }
 
-  const scrParsed = parseJSONSafe<ScriptFile>(scrResult);
+  const scrParsed = parseJSONSafe<ScriptFile & { pom_code?: string }>(scrResult);
 
   return {
     ...scrParsed,
-    file_name: testCase.file_name,
-    script_location: testCase.script_location,
+    file_name: scrParsed.file_name || fileName,
+    script_location: scrParsed.script_location || scriptLocation,
     tokens_used: scrUsage.totalTokens || 0,
+    ...(scrParsed.pom_code ? { pom_code: scrParsed.pom_code } : {}),
+  };
+}
+
+export async function generatePageObjectModel(
+  pageData: PageData,
+  userContext: string,
+  provider: string,
+  model: string,
+  apiKey: string,
+  framework: string = 'playwright',
+  language: string = 'typescript',
+  publicBaseUrl: string = ''
+): Promise<ScriptFile & { tokens_used: number }> {
+  const fw = (framework || 'playwright').toLowerCase().trim();
+  const lang = (language || 'typescript').toLowerCase().trim();
+  const isTs = lang === 'typescript' || lang === 'ts';
+  const ext = isTs ? '.ts' : '.js';
+
+  const slug = extractCaseSlug(userContext || pageData?.title || 'page');
+  const className = slug.charAt(0).toUpperCase() + slug.slice(1) + 'Page';
+  const fileName = `${className}${ext}`;
+  const folder = fw === 'cypress' ? 'cypress/pages' : 'pages';
+  const scriptLocation = `${folder}/${fileName}`;
+
+  const elementsStr = formatElements(pageData?.elements || [], true);
+  const frameworkRules = getFrameworkRules(fw, lang, true);
+
+  const systemPrompt = 'You are a senior QA automation architect. Return valid JSON only. English code only. No markdown.';
+  const userPrompt =
+`Generate a comprehensive Page Object Model (POM) class for this web application.
+
+Target URL: ${pageData?.url || ''}
+Page Title: ${pageData?.title || ''}
+Context: ${userContext || ''}
+
+Available DOM Elements:
+${elementsStr || 'None captured. Infer standard accessible locators.'}
+
+Framework Rules:
+- ${frameworkRules}
+
+POM Requirements:
+- Class name: ${className}
+- Define locators for key interactive elements using the resilient hierarchy (data-testid > accessible role/label > text > css).
+- Implement reusable interaction methods for common user flows (filling forms, submitting, navigating, asserting state).
+${fw === 'cypress'
+  ? `- Cypress style: define getters returning cy.get(...) or cy.contains(...) and action methods.`
+  : `- Playwright style: initialize locators with Page in constructor (${isTs ? 'using typed properties readonly page: Page' : 'constructor(page)'}).`}
+- Export the class: export class ${className} { ... }
+
+Return exactly valid JSON:
+{"file_name":"${fileName}","script_location":"${scriptLocation}","content":"<POM class code>"}`;
+
+  const usage = { totalTokens: 0 };
+  const rawResult = await callLLM(
+    provider,
+    model,
+    apiKey,
+    systemPrompt,
+    userPrompt,
+    true,
+    SCRIPT_MAX_OUTPUT_TOKENS,
+    usage,
+    publicBaseUrl
+  );
+
+  const parsed = parseJSONSafe<ScriptFile>(rawResult);
+  return {
+    file_name: parsed.file_name || fileName,
+    script_location: parsed.script_location || scriptLocation,
+    content: parsed.content || '',
+    tokens_used: usage.totalTokens || 0,
   };
 }
 
@@ -494,8 +640,9 @@ export async function analyzePage(
   apiKey: string,
   customPrompt: string = '',
   framework: string = 'playwright',
-  language: string = 'typescript'
-): Promise<{ testCases: any[]; scripts: ScriptFile[]; tokens: number }> {
+  language: string = 'typescript',
+  usePom: boolean = false
+): Promise<{ testCases: any[]; scripts: ScriptFile[]; tokens: number; pom?: ScriptFile }> {
   const { testCases, tokens: tcTokens } = await generateTestCases(
     pageData,
     userContext,
@@ -506,6 +653,26 @@ export async function analyzePage(
   );
 
   let totalTokens = tcTokens;
+  let pomFile: ScriptFile | undefined;
+
+  if (usePom) {
+    try {
+      const pomRes = await generatePageObjectModel(
+        pageData,
+        userContext,
+        provider,
+        model,
+        apiKey,
+        framework,
+        language
+      );
+      pomFile = pomRes;
+      totalTokens += pomRes.tokens_used || 0;
+    } catch (e) {
+      console.warn('Failed to generate shared POM class in analyzePage:', e);
+    }
+  }
+
   const scripts: ScriptFile[] = [];
 
   // Sequential fallback for direct analyzePage calls.
@@ -519,14 +686,16 @@ export async function analyzePage(
       apiKey,
       tc,
       framework,
-      language
+      language,
+      '',
+      usePom
     );
 
     scripts.push(scriptRes);
     totalTokens += scriptRes.tokens_used || 0;
   }
 
-  return { testCases, scripts, tokens: totalTokens };
+  return { testCases, scripts, tokens: totalTokens, pom: pomFile };
 }
 
 export type { PageData as PageDataType };
