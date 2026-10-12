@@ -5,7 +5,8 @@ import JSZip from "jszip";
 import { saveAs } from "file-saver";
 import { GenerateResponse } from "@/types";
 import toast from "react-hot-toast";
-import { Download, ChevronDown } from "lucide-react";
+import { Download, ChevronDown, FileSpreadsheet } from "lucide-react";
+import SendToSheetsModal from "./SendToSheetsModal";
 
 interface DownloadButtonsProps {
   results: GenerateResponse;
@@ -13,6 +14,34 @@ interface DownloadButtonsProps {
 
 export default function DownloadButtons({ results }: DownloadButtonsProps) {
   const [showMenu, setShowMenu] = useState(false);
+  const [showSheetsModal, setShowSheetsModal] = useState(false);
+
+  const getSheetsData = () => {
+    if (results.test_cases && results.test_cases.length > 0) {
+      const headers = ["ID", "Name", "Type", "Priority", "Preconditions", "Steps", "Expected Result"];
+      const rows = results.test_cases.map((tc, i) => [
+        `TC-${String(i + 1).padStart(3, "0")}`,
+        tc.name || "",
+        tc.type || "POSITIVE",
+        tc.priority || "MEDIUM",
+        tc.pre_condition || "",
+        (tc.test_steps || []).join("\n"),
+        tc.expected_result || "",
+      ]);
+      return { headers, rows };
+    }
+
+    const lines = (results.test_case_table || "").trim().split("\n");
+    if (lines.length >= 3) {
+      const headers = lines[0].split("|").filter((h) => h.trim()).map((h) => h.trim());
+      const rows = lines.slice(2).map((r) =>
+        r.split("|").filter((_, idx, arr) => idx > 0 && idx < arr.length - 1).map((c) => c.trim())
+      );
+      return { headers, rows };
+    }
+
+    return { headers: ["Test Case"], rows: [] };
+  };
 
   const downloadMarkdown = () => {
     const blob = new Blob([results.test_case_table], { type: "text/markdown" });
@@ -183,6 +212,19 @@ export default function DownloadButtons({ results }: DownloadButtonsProps) {
                     </button>
                   </>
                 )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowMenu(false);
+                    setShowSheetsModal(true);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs text-emerald-700 font-medium hover:bg-emerald-50 transition flex items-center gap-2"
+                >
+                  <span className="w-8 text-right font-mono text-emerald-600 flex items-center justify-end">
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                  </span>
+                  Google Spreadsheet
+                </button>
               </>
             )}
             {hasCases && hasScripts && <div className="border-t border-slate-100 my-1" />}
@@ -198,6 +240,17 @@ export default function DownloadButtons({ results }: DownloadButtonsProps) {
             )}
           </div>
         </>
+      )}
+
+      {showSheetsModal && (
+        <SendToSheetsModal
+          isOpen={showSheetsModal}
+          onClose={() => setShowSheetsModal(false)}
+          title="Export Test Cases to Google Sheet"
+          defaultSheetName="Test Cases"
+          headers={getSheetsData().headers}
+          rows={getSheetsData().rows}
+        />
       )}
     </div>
   );

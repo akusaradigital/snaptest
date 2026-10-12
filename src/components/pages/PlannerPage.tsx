@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles } from 'lucide-react';
+import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles, FileSpreadsheet } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
 import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
+import SendToSheetsModal from '@/components/SendToSheetsModal';
 
 interface PlannerPageProps {
   aiProvider: string;
@@ -62,6 +63,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   const [refine, setRefine] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlannerResult | null>(null);
+  const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
 
@@ -566,6 +568,14 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
                 <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Test Matrix</span>
                   <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSheetsModalOpen(true)}
+                      className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Spreadsheet</span>
+                    </button>
                     <button type="button" onClick={downloadCsv} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> CSV</button>
                     <button type="button" onClick={downloadXlsx} className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> XLSX</button>
                   </div>
@@ -647,6 +657,24 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
           )}
         </div>
       </div>
+
+      {sheetsModalOpen && result?.test_matrix && (
+        <SendToSheetsModal
+          isOpen={sheetsModalOpen}
+          onClose={() => setSheetsModalOpen(false)}
+          title={`Export "${result.feature_name || 'Test Plan'}" to Google Sheet`}
+          defaultSheetName="Test Plan"
+          headers={["ID", "Category", "Scenario", "Expected Result", "Priority", "Effort Hours"]}
+          rows={result.test_matrix.map(tc => [
+            tc.id,
+            tc.category,
+            tc.scenario,
+            tc.expected,
+            tc.priority,
+            tc.effort_hours,
+          ])}
+        />
+      )}
     </div>
   );
 }

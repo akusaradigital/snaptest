@@ -14,11 +14,13 @@ import {
   X,
   Search,
   Table,
-  Code
+  Code,
+  FileSpreadsheet
 } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
 import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
+import SendToSheetsModal from '@/components/SendToSheetsModal';
 
 interface DataGenPageProps {
   aiProvider: string;
@@ -45,6 +47,7 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
   const [data, setData] = useState<any[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
+  const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
 
   // Session state
   const [sessions, setSessions] = useState<DataGenSession[]>([]);
@@ -702,8 +705,15 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
                   <button onClick={copyToClipboard} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center">
                     <Copy className="w-3.5 h-3.5" /> {copied ? "Copied!" : "Copy JSON"}
                   </button>
-                  <button onClick={downloadCsv} className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center">
+                  <button onClick={downloadCsv} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center">
                     <Download className="w-3.5 h-3.5" /> CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSheetsModalOpen(true)}
+                    className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center bg-emerald-600 hover:bg-emerald-700 text-white"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" /> Spreadsheet
                   </button>
                 </div>
               </div>
@@ -748,6 +758,22 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
           )}
         </div>
       </div>
+
+      {sheetsModalOpen && data && dataHeaders.length > 0 && (
+        <SendToSheetsModal
+          isOpen={sheetsModalOpen}
+          onClose={() => setSheetsModalOpen(false)}
+          title={`Export "${activeSession?.title || 'Test Data'}" to Google Sheet`}
+          defaultSheetName="Test Data"
+          headers={dataHeaders}
+          rows={data.map(row =>
+            dataHeaders.map(h => {
+              const val = row[h];
+              return typeof val === 'object' && val !== null ? JSON.stringify(val) : String(val ?? '');
+            })
+          )}
+        />
+      )}
     </div>
   );
 }

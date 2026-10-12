@@ -8,9 +8,10 @@ import {
   Network, FileJson, FileText, Loader2, Copy,
   CheckCircle2, Download, Paperclip,
   ChevronDown, ChevronRight, Clock, PlusCircle,
-  Pencil, Trash2, Check, X
+  Pencil, Trash2, Check, X, FileSpreadsheet
 } from "lucide-react";
 import toast from "react-hot-toast";
+import SendToSheetsModal from "@/components/SendToSheetsModal";
 
 interface ApiAgentPageProps {
   aiProvider: string;
@@ -108,6 +109,7 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
   const [activeOutputTab, setActiveOutputTab] = useState<"cases" | "collection">("cases");
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
+  const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Session state
@@ -786,6 +788,14 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
                     </button>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setSheetsModalOpen(true)}
+                      className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
+                    >
+                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                      <span>Spreadsheet</span>
+                    </button>
                     <button onClick={() => downloadCsv()} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3 h-3" /> CSV</button>
                     <button onClick={() => downloadPostman()} className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3 h-3" /> Postman</button>
                   </div>
@@ -855,6 +865,31 @@ export default function ApiAgentPage({ aiProvider, aiModel }: ApiAgentPageProps)
           </div>
         </div>
       </div>
+
+      {sheetsModalOpen && suites.length > 0 && (
+        <SendToSheetsModal
+          isOpen={sheetsModalOpen}
+          onClose={() => setSheetsModalOpen(false)}
+          title="Export API Test Suite to Google Sheet"
+          defaultSheetName="API Tests"
+          headers={
+            suites.length > 1
+              ? ["Endpoint", "ID", "Name", "Category", "Description", "Expected Status", "Priority"]
+              : ["ID", "Name", "Category", "Description", "Expected Status", "Priority"]
+          }
+          rows={suites.flatMap(s =>
+            (s.test_cases || []).map(tc => [
+              ...(suites.length > 1 ? [s.endpoint] : []),
+              tc.id,
+              tc.name,
+              tc.category,
+              tc.description,
+              tc.expected_status,
+              tc.priority,
+            ])
+          )}
+        />
+      )}
     </div>
   );
 }

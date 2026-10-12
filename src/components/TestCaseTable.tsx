@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { ChevronDown, Loader2, CheckCircle2, XCircle, Download, Pencil, Check, X as XIcon, Play, Maximize2 } from "lucide-react";
+import { ChevronDown, Loader2, CheckCircle2, XCircle, Download, Pencil, Check, X as XIcon, Play, Maximize2, FileSpreadsheet } from "lucide-react";
 import { TestCase, ScriptFile } from "@/types";
 import toast from "react-hot-toast";
+import SendToSheetsModal from "./SendToSheetsModal";
 
 function parseMdRow(rowStr: string): string[] {
   const parts = rowStr.split("|");
@@ -226,6 +227,7 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
     onRunStatesChange?.(next);
   };
   const [showExport, setShowExport]         = useState(false);
+  const [showSheetsModal, setShowSheetsModal] = useState(false);
   const [editIdx, setEditIdx]               = useState<number | null>(null);
   const [editDraft, setEditDraft]           = useState<Partial<TestCase>>({});
 
@@ -390,6 +392,17 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
                   className="w-full text-left px-3 py-2 text-xs text-indigo-700 font-medium hover:bg-indigo-50 transition"
                 >
                   Zephyr Scale CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowExport(false);
+                    setShowSheetsModal(true);
+                  }}
+                  className="w-full text-left px-3 py-2 text-xs text-emerald-700 font-medium hover:bg-emerald-50 transition flex items-center justify-between"
+                >
+                  <span>Google Spreadsheet</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
                 </button>
                 <div className="border-t border-slate-100 my-1" />
                 <button
@@ -584,6 +597,26 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
           </tbody>
         </table>
       </div>
+
+      {showSheetsModal && (
+        <SendToSheetsModal
+          isOpen={showSheetsModal}
+          onClose={() => setShowSheetsModal(false)}
+          title="Export Test Cases to Google Sheet"
+          defaultSheetName="Test Cases"
+          headers={["#", "ID", "Name", "Type", "Priority", "Preconditions", "Steps", "Expected Result"]}
+          rows={cases.map((tc, i) => [
+            tc.number,
+            getCaseId(tc, i),
+            tc.name || "",
+            tc.type || "POSITIVE",
+            tc.priority || "MEDIUM",
+            tc.pre_condition || "",
+            (tc.test_steps || []).join("\n"),
+            tc.expected_result || "",
+          ])}
+        />
+      )}
     </div>
   );
 }

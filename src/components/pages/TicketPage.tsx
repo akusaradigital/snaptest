@@ -24,6 +24,7 @@ import {
   Pin,
   Bookmark,
 } from "lucide-react";
+import SendToSheetsModal from "@/components/SendToSheetsModal";
 
 interface TicketPageProps {
   aiProvider: string;
@@ -84,6 +85,11 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
   const [aksoraConfigured, setAksoraConfigured] = useState(false);
   const [syncingSheets, setSyncingSheets] = useState(false);
   const [sheetsConfigured, setSheetsConfigured] = useState(false);
+  const [sheetsModalData, setSheetsModalData] = useState<{
+    isOpen: boolean;
+    title: string;
+    tickets: Array<Record<string, any>>;
+  } | null>(null);
   const [sessionSearch, setSessionSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -147,7 +153,7 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
     }
     try {
       const saved = JSON.parse(localStorage.getItem("sheets_config") || "{}");
-      setSheetsConfigured(!!saved.webhook_url);
+      setSheetsConfigured(Boolean(saved.webhook_url || saved.sheet_url || saved.access_token));
     } catch {
       setSheetsConfigured(false);
     }
@@ -723,16 +729,18 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
   };
 
   const handleSyncToSheets = async (result: Record<string, any>) => {
-    const savedSheets = localStorage.getItem("sheets_config");
-    if (!savedSheets) {
-      toast.error("Please configure Google Sheets integration in Settings first.");
-      return;
-    }
     let config: any = {};
-    try { config = JSON.parse(savedSheets); } catch {}
+    try {
+      config = JSON.parse(localStorage.getItem("sheets_config") || "{}");
+    } catch {}
 
-    if (!config.webhook_url) {
-      toast.error("Google Sheets Webhook URL is missing. Please check Settings.");
+    const hasTarget = Boolean(config.sheet_url || config.webhook_url);
+    if (!hasTarget) {
+      setSheetsModalData({
+        isOpen: true,
+        title: `Export "${result.title || "Ticket"}" to Google Sheet`,
+        tickets: [result],
+      });
       return;
     }
 
@@ -747,24 +755,43 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           sheet_url: config.sheet_url,
           sheet_name: config.sheet_name || "QA Tickets",
           ticket: result,
+          access_token: config.access_token,
+          refresh_token: config.refresh_token,
         }),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Failed to sync to Google Sheets");
+      if (!res.ok) {
+        if (data.need_auth) {
+          setSheetsModalData({
+            isOpen: true,
+            title: `Export "${result.title || "Ticket"}" to Google Sheet`,
+            tickets: [result],
+          });
+          return;
+        }
+        throw new Error(data.detail || "Failed to sync to Google Sheets");
+      }
 
       toast.success("Synced to Google Spreadsheet!");
 
       if (activeSessionId) {
-        const nextSessions = sessions.map(s => {
+        const nextSessions = sessions.map((s) => {
           if (s.id !== activeSessionId) return s;
-          const nextMessages = s.messages.map(m => {
+          const nextMessages = s.messages.map((m) => {
             if (m.role !== "assistant" || !m.ticket_result || m.ticket_result !== result) return m;
-            return { ...m, ticket_result: { ...m.ticket_result, sheets_synced: true, sheets_url: data.sheet_url || config.sheet_url || undefined } };
+            return {
+              ...m,
+              ticket_result: {
+                ...m.ticket_result,
+                sheets_synced: true,
+                sheets_url: data.sheet_url || config.sheet_url || undefined,
+              },
+            };
           });
           return { ...s, messages: nextMessages };
         });
-        const updatedTarget = nextSessions.find(s => s.id === activeSessionId);
+        const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
         saveSessionsToStorage(nextSessions, updatedTarget);
       }
     } catch (err: any) {
@@ -777,22 +804,26 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
   const handleBatchSyncToSheets = async () => {
     if (!activeSession) return;
     const unsyncedTickets = activeSession.messages
-      .filter(m => m.role === "assistant" && m.ticket_result && !m.ticket_result.sheets_synced)
-      .map(m => m.ticket_result!);
+      .filter((m) => m.role === "assistant" && m.ticket_result && !m.ticket_result.sheets_synced)
+      .map((m) => m.ticket_result!);
 
     if (unsyncedTickets.length === 0) {
       toast.success("All tickets in this chat are already synced to Google Sheets!");
       return;
     }
 
-    const savedSheets = localStorage.getItem("sheets_config");
-    if (!savedSheets) {
-      toast.error("Please configure Google Sheets integration in Settings first.");
-      return;
-    }
-    const config = JSON.parse(savedSheets || "{}");
-    if (!config.webhook_url) {
-      toast.error("Google Sheets Webhook URL is missing. Please check Settings.");
+    let config: any = {};
+    try {
+      config = JSON.parse(localStorage.getItem("sheets_config") || "{}");
+    } catch {}
+
+    const hasTarget = Boolean(config.sheet_url || config.webhook_url);
+    if (!hasTarget) {
+      setSheetsModalData({
+        isOpen: true,
+        title: `Export ${unsyncedTickets.length} Tickets to Google Sheet`,
+        tickets: unsyncedTickets,
+      });
       return;
     }
 
@@ -810,6 +841,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             sheet_url: config.sheet_url,
             sheet_name: config.sheet_name || "QA Tickets",
             ticket: t,
+            access_token: config.access_token,
+            refresh_token: config.refresh_token,
           }),
         });
         if (res.ok) {
@@ -822,20 +855,53 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     setSyncingSheets(false);
     if (successCount > 0) {
       toast.success(`Synced ${successCount} ticket(s) to Google Sheets!`);
-      // Update session state only for tickets that actually succeeded
-      const nextSessions = sessions.map(s => {
+      const nextSessions = sessions.map((s) => {
         if (s.id !== activeSessionId) return s;
-        const nextMessages = s.messages.map(m => {
+        const nextMessages = s.messages.map((m) => {
           if (m.role !== "assistant" || !m.ticket_result || !successfulTickets.has(m.ticket_result)) return m;
-          return { ...m, ticket_result: { ...m.ticket_result, sheets_synced: true, sheets_url: config.sheet_url || undefined } };
+          return {
+            ...m,
+            ticket_result: {
+              ...m.ticket_result,
+              sheets_synced: true,
+              sheets_url: config.sheet_url || undefined,
+            },
+          };
         });
         return { ...s, messages: nextMessages };
       });
-      const updatedTarget = nextSessions.find(s => s.id === activeSessionId);
+      const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
       saveSessionsToStorage(nextSessions, updatedTarget);
     } else {
-      toast.error("Failed to sync tickets to Google Sheets");
+      setSheetsModalData({
+        isOpen: true,
+        title: `Export ${unsyncedTickets.length} Tickets to Google Sheet`,
+        tickets: unsyncedTickets,
+      });
     }
+  };
+
+  const handleSheetsModalSuccess = (syncedUrl: string) => {
+    if (!sheetsModalData || !activeSessionId) return;
+    const syncedTicketsSet = new Set(sheetsModalData.tickets);
+    const nextSessions = sessions.map((s) => {
+      if (s.id !== activeSessionId) return s;
+      const nextMessages = s.messages.map((m) => {
+        if (m.role !== "assistant" || !m.ticket_result || !syncedTicketsSet.has(m.ticket_result)) return m;
+        return {
+          ...m,
+          ticket_result: {
+            ...m.ticket_result,
+            sheets_synced: true,
+            sheets_url: syncedUrl,
+          },
+        };
+      });
+      return { ...s, messages: nextMessages };
+    });
+    const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(nextSessions, updatedTarget);
+    setSheetsConfigured(true);
   };
 
   // Sends `messagesForRequest` (full conversation so far) to the agent and appends the reply
@@ -1444,13 +1510,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           </div>
 
           <div className="flex items-center gap-2">
-            {sheetsConfigured && messages.some(m => m.ticket_result) && (
+            {messages.some((m) => m.ticket_result) && (
               <button
                 type="button"
                 onClick={handleBatchSyncToSheets}
                 disabled={syncingSheets}
                 className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition font-medium disabled:opacity-50"
-                title="Sync all tickets in this chat to Google Sheets"
+                title="Sync tickets in this chat to Google Sheets"
               >
                 {syncingSheets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />}
                 <span>{syncingSheets ? "Syncing..." : "Sync All to Sheets"}</span>
@@ -1667,6 +1733,48 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             </div>
           </div>
         </div>
+      )}
+
+      {sheetsModalData && sheetsModalData.isOpen && (
+        <SendToSheetsModal
+          isOpen={sheetsModalData.isOpen}
+          onClose={() => setSheetsModalData(null)}
+          title={sheetsModalData.title}
+          defaultSheetName="QA Tickets"
+          headers={[
+            "Date",
+            "Issue Type",
+            "Priority",
+            "Title",
+            "Assignee",
+            "Component",
+            "Description",
+            "Expected Result",
+            "Actual Result",
+            "Acceptance Criteria",
+            "Evidence",
+            "Jira Key",
+            "Timestamp",
+          ]}
+          rows={sheetsModalData.tickets.map((t) => [
+            new Date().toLocaleDateString(),
+            t.issue_type || "Bug",
+            t.priority || "P1",
+            (t.title || "").replace(/\*\*/g, "").trim(),
+            t.assignee_name || "Unassigned",
+            t.component || "",
+            (t.description || "").replace(/\*\*/g, "").trim(),
+            (t.expected_result || "").replace(/\*\*/g, "").trim(),
+            (t.actual_result || t.current_behavior || "").replace(/\*\*/g, "").trim(),
+            Array.isArray(t.acceptance_criteria)
+              ? t.acceptance_criteria.join("; ")
+              : t.acceptance_criteria || "",
+            t.evidence || "",
+            t.jira_key || "",
+            new Date().toISOString(),
+          ])}
+          onSuccess={handleSheetsModalSuccess}
+        />
       )}
     </div>
   );

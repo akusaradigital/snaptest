@@ -12,8 +12,10 @@ import {
   Trash2,
   Check,
   X,
-  PlusCircle
+  PlusCircle,
+  FileSpreadsheet
 } from "lucide-react";
+import SendToSheetsModal from "@/components/SendToSheetsModal";
 
 interface ReportPageProps {
   aiProvider: string;
@@ -46,6 +48,7 @@ export default function ReportPage({ aiProvider, aiModel }: ReportPageProps) {
   const [sessions, setSessions] = useState<ReportSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
 
@@ -476,17 +479,28 @@ export default function ReportPage({ aiProvider, aiModel }: ReportPageProps) {
             <span>Regenerate Fresh Report</span>
           </button>
 
-          {/* Download PDF */}
+          {/* Download Buttons */}
           {report && (
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 transition"
-              title="Print or export report to PDF"
-            >
-              <Download className="w-4 h-4" />
-              <span>Download PDF</span>
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => setSheetsModalOpen(true)}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 border border-emerald-200 dark:border-emerald-800 transition"
+                title="Export executive report summary to Google Sheet"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <span>Spreadsheet</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => window.print()}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium text-white bg-slate-800 hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600 transition"
+                title="Print or export report to PDF"
+              >
+                <Download className="w-4 h-4" />
+                <span>Download PDF</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -610,6 +624,24 @@ export default function ReportPage({ aiProvider, aiModel }: ReportPageProps) {
             )}
           </div>
         </div>
+      )}
+
+      {sheetsModalOpen && report && (
+        <SendToSheetsModal
+          isOpen={sheetsModalOpen}
+          onClose={() => setSheetsModalOpen(false)}
+          title={`Export "${report.title || 'Executive Report'}" to Google Sheet`}
+          defaultSheetName="Executive Report"
+          headers={["Section", "Details"]}
+          rows={[
+            ["Report Title", report.title || "Executive QA Test Report"],
+            ["Generated Date", reportDateStr],
+            ["Executive Summary", report.summary || ""],
+            ["Key Achievements", (report.key_achievements || []).map((a, i) => `${i + 1}. ${a}`).join("\n")],
+            ["Risk Assessment", report.risk_assessment || ""],
+            ["Recommendations", (report.recommendations || []).map((r, i) => `${i + 1}. ${r}`).join("\n")],
+          ]}
+        />
       )}
     </div>
   );

@@ -1305,8 +1305,8 @@ export default function TicketChatBubble({
                         </button>
                       )}
 
-                      {/* Sheets (if configured and not yet synced) */}
-                      {!readOnly && sheetsConfigured && onSyncToSheets && !ticket.sheets_synced && (
+                      {/* Sheets (sync to Google Spreadsheet) */}
+                      {!readOnly && onSyncToSheets && !ticket.sheets_synced && (
                         <button
                           type="button"
                           onClick={() => { setShowMoreMenu(false); onSyncToSheets(ticket); }}
@@ -1314,7 +1314,7 @@ export default function TicketChatBubble({
                           className="w-full px-3 py-2 text-left flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition disabled:opacity-50"
                         >
                           {syncingSheets ? <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-500" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />}
-                          <span>{syncingSheets ? "Syncing..." : "Sync to Sheets"}</span>
+                          <span>{syncingSheets ? "Syncing..." : "Send to Spreadsheet"}</span>
                         </button>
                       )}
                     </div>
