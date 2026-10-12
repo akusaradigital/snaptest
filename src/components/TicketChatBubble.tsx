@@ -1534,32 +1534,23 @@ export default function TicketChatBubble({
               </select>
             </div>
 
-            {/* Scope / Domain (Mandatory, No default) */}
+            {/* Scope / Domain (Optional) */}
             <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
               <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
-                Select Scope / Domain Label <span className="text-rose-500 font-bold">* (Wajib)</span>:
+                Select Scope / Domain Label (optional):
               </span>
               <select
                 value={ticket.scope_label || ""}
                 onChange={(e) => {
                   onUpdateTicket?.(msg.id, { scope_label: e.target.value });
                 }}
-                className={`w-full p-2 rounded-lg bg-white dark:bg-slate-900 border text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors ${
-                  !ticket.scope_label
-                    ? "border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/40"
-                    : "border-slate-200 dark:border-slate-700"
-                }`}
+                className="w-full p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none"
               >
-                <option value="">-- Pilih Scope / Domain (Wajib) --</option>
+                <option value="">None (Leave empty)</option>
                 <option value="Frontend">💻 Frontend</option>
                 <option value="Backend">⚙️ Backend</option>
                 <option value="AI">🤖 AI</option>
               </select>
-              {!ticket.scope_label && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
-                  ⚠️ Wajib pilih Frontend, Backend, atau AI sebelum push ke Jira.
-                </p>
-              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
@@ -1572,19 +1563,12 @@ export default function TicketChatBubble({
               </button>
               <button
                 type="button"
-                disabled={!ticket.scope_label}
                 onClick={() => {
-                  if (!ticket.scope_label) return;
                   setShowUnassignedWarningModal(false);
                   if (!ticket.jira_label) ticket.jira_label = "Development";
                   onPushToJira?.(ticket);
                 }}
-                className={`text-xs ${
-                  !ticket.scope_label
-                    ? "opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-3 py-1.5 rounded-lg font-medium"
-                    : "btn-primary"
-                }`}
-                title={!ticket.scope_label ? "Pilih scope terlebih dahulu" : undefined}
+                className="btn-primary text-xs"
               >
                 {ticket.assignee_id ? "Push to Jira" : "Push without Assignee"}
               </button>
