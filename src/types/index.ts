@@ -81,6 +81,14 @@ export interface TicketResult {
   acceptance_criteria: string[] | null;
   markdown: string;
   tokens_used?: number;
+  jira_label?: string;
+  scope_label?: string;
+  jira_key?: string;
+  jira_url?: string;
+  assignee_id?: string;
+  assignee_name?: string;
+  component?: string;
+  priority?: string;
 }
 
 export interface MonitoredUrl {

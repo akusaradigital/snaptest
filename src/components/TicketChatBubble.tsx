@@ -185,6 +185,7 @@ export default function TicketChatBubble({
       assignee_id: msg.ticket_result?.assignee_id || "",
       assignee_name: msg.ticket_result?.assignee_name || "",
       jira_label: msg.ticket_result?.jira_label || "Development",
+      scope_label: msg.ticket_result?.scope_label || "",
       current_behavior: stripStars(msg.ticket_result?.current_behavior),
       expected_result: stripStars(msg.ticket_result?.expected_result),
       actual_result: stripStars(msg.ticket_result?.actual_result),
@@ -204,6 +205,7 @@ export default function TicketChatBubble({
       (draft.component || "").trim() !== (original.component || "").trim() ||
       (draft.assignee_id || "") !== (original.assignee_id || "") ||
       (draft.jira_label || "Development") !== (original.jira_label || "Development") ||
+      (draft.scope_label || "") !== (original.scope_label || "") ||
       (draft.current_behavior || "").trim() !== stripStars(original.current_behavior || "").trim() ||
       (draft.expected_result || "").trim() !== stripStars(original.expected_result || "").trim() ||
       (draft.actual_result || "").trim() !== stripStars(original.actual_result || "").trim() ||
@@ -241,7 +243,9 @@ export default function TicketChatBubble({
             priority: draft.priority || msg.ticket_result?.priority || "P1",
             issue_type: draft.issue_type || msg.ticket_result?.issue_type || "Bug",
             assignee_id: draft.assignee_id,
+            labels: [draft.jira_label || "Development", draft.scope_label].filter(Boolean),
             jira_label: draft.jira_label || "Development",
+            scope_label: draft.scope_label,
             label: draft.jira_label || "Development",
           }),
         });
@@ -282,6 +286,7 @@ export default function TicketChatBubble({
     if (t.title) lines.push(`**Title:** ${stripStars(t.title)}`);
     if (t.component) lines.push(`**Component:** ${t.component}`);
     if (t.jira_label) lines.push(`**Environment:** ${t.jira_label}`);
+    if (t.scope_label) lines.push(`**Scope:** ${t.scope_label}`);
     if (t.description) lines.push(`\n**Description:**\n${stripStars(t.description)}`);
     if (t.current_behavior) lines.push(`\n**Current Behavior:**\n${stripStars(t.current_behavior)}`);
     if (t.expected_result) lines.push(`\n**Expected Result:**\n${stripStars(t.expected_result)}`);
@@ -361,6 +366,7 @@ export default function TicketChatBubble({
       "Assignee",
       "Component",
       "Environment",
+      "Scope",
       "Description",
       "Current Behavior",
       "Expected Result",
@@ -380,6 +386,7 @@ export default function TicketChatBubble({
       escapeCsv(t.assignee_name || "Unassigned"),
       escapeCsv(t.component || ""),
       escapeCsv(t.jira_label || ""),
+      escapeCsv(t.scope_label || ""),
       escapeCsv(stripStars(t.description)),
       escapeCsv(stripStars(t.current_behavior)),
       escapeCsv(stripStars(t.expected_result)),
@@ -412,6 +419,7 @@ export default function TicketChatBubble({
     const priority = escapeHtml(t.priority || "P1");
     const component = escapeHtml(t.component || "");
     const environment = escapeHtml(t.jira_label || "");
+    const scope = escapeHtml(t.scope_label || "");
     const assignee = escapeHtml(t.assignee_name || "");
     const jiraKey = escapeHtml(t.jira_key || "");
     const description = escapeHtml(stripStars(t.description));
@@ -480,10 +488,11 @@ export default function TicketChatBubble({
             </div>
           </div>
           <h1>${escapeHtml(title)}</h1>
-          ${(component || environment || assignee || jiraKey) ? `
+          ${(component || environment || scope || assignee || jiraKey) ? `
           <div class="meta-grid">
             ${component ? `<div class="meta-item"><span class="meta-label">Component</span><span class="meta-value">${component}</span></div>` : ""}
             ${environment ? `<div class="meta-item"><span class="meta-label">Environment</span><span class="meta-value">${environment}</span></div>` : ""}
+            ${scope ? `<div class="meta-item"><span class="meta-label">Scope</span><span class="meta-value">${scope}</span></div>` : ""}
             ${assignee ? `<div class="meta-item"><span class="meta-label">Assignee</span><span class="meta-value">${assignee}</span></div>` : ""}
             ${jiraKey ? `<div class="meta-item"><span class="meta-label">Jira Key</span><span class="meta-value">${jiraKey}</span></div>` : ""}
           </div>` : ""}
@@ -599,6 +608,14 @@ export default function TicketChatBubble({
                 <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
                   <Tag className="w-3 h-3 text-slate-400" />
                   <span>{ticket.jira_label}</span>
+                </span>
+              )}
+
+              {/* Scope label (Frontend / Backend / AI) */}
+              {ticket.scope_label && (
+                <span className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800">
+                  <Tag className="w-3 h-3 text-indigo-400" />
+                  <span>{ticket.scope_label}</span>
                 </span>
               )}
             </div>
@@ -771,6 +788,22 @@ export default function TicketChatBubble({
                       <option value="Development">Development</option>
                       <option value="UAT">UAT</option>
                       <option value="Production">Production</option>
+                    </select>
+                  </label>
+                )}
+
+                {jiraConfigured && (
+                  <label className="block">
+                    <span className="text-xs font-bold text-slate-500">Scope / Domain</span>
+                    <select
+                      value={draft.scope_label || ""}
+                      onChange={(e) => setDraft({ ...draft, scope_label: e.target.value })}
+                      className="w-full mt-1 p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-medium focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    >
+                      <option value="">-- Pilih Scope --</option>
+                      <option value="Frontend">Frontend</option>
+                      <option value="Backend">Backend</option>
+                      <option value="AI">AI</option>
                     </select>
                   </label>
                 )}
@@ -1455,7 +1488,7 @@ export default function TicketChatBubble({
               <div>
                 <h3 className="font-bold text-sm text-slate-900 dark:text-white">Push to Jira Confirmation</h3>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Confirm assignee and environment label before uploading to Jira.
+                  Confirm assignee, environment, and scope label before uploading to Jira.
                 </p>
               </div>
             </div>
@@ -1501,6 +1534,34 @@ export default function TicketChatBubble({
               </select>
             </div>
 
+            {/* Scope / Domain (Mandatory, No default) */}
+            <div className="space-y-1 bg-slate-50 dark:bg-slate-800/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-xs">
+              <span className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                Select Scope / Domain Label <span className="text-rose-500 font-bold">* (Wajib)</span>:
+              </span>
+              <select
+                value={ticket.scope_label || ""}
+                onChange={(e) => {
+                  onUpdateTicket?.(msg.id, { scope_label: e.target.value });
+                }}
+                className={`w-full p-2 rounded-lg bg-white dark:bg-slate-900 border text-xs text-slate-800 dark:text-slate-200 focus:ring-1 focus:ring-blue-500 focus:outline-none transition-colors ${
+                  !ticket.scope_label
+                    ? "border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/40"
+                    : "border-slate-200 dark:border-slate-700"
+                }`}
+              >
+                <option value="">-- Pilih Scope / Domain (Wajib) --</option>
+                <option value="Frontend">💻 Frontend</option>
+                <option value="Backend">⚙️ Backend</option>
+                <option value="AI">🤖 AI</option>
+              </select>
+              {!ticket.scope_label && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 flex items-center gap-1 font-medium">
+                  ⚠️ Wajib pilih Frontend, Backend, atau AI sebelum push ke Jira.
+                </p>
+              )}
+            </div>
+
             <div className="flex justify-end gap-2 pt-1">
               <button
                 type="button"
@@ -1511,12 +1572,19 @@ export default function TicketChatBubble({
               </button>
               <button
                 type="button"
+                disabled={!ticket.scope_label}
                 onClick={() => {
+                  if (!ticket.scope_label) return;
                   setShowUnassignedWarningModal(false);
                   if (!ticket.jira_label) ticket.jira_label = "Development";
                   onPushToJira?.(ticket);
                 }}
-                className="btn-primary text-xs"
+                className={`text-xs ${
+                  !ticket.scope_label
+                    ? "opacity-50 cursor-not-allowed bg-slate-300 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-3 py-1.5 rounded-lg font-medium"
+                    : "btn-primary"
+                }`}
+                title={!ticket.scope_label ? "Pilih scope terlebih dahulu" : undefined}
               >
                 {ticket.assignee_id ? "Push to Jira" : "Push without Assignee"}
               </button>

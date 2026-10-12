@@ -250,7 +250,7 @@ export async function POST(request: Request) {
       jiraFields.assignee = { accountId: assigneeAccountId };
     }
 
-    const rawLabels = labels || label;
+    const rawLabels = labels || label || [rest.jira_label, rest.scope_label].filter(Boolean);
     if (rawLabels) {
       const labelArr = Array.isArray(rawLabels) ? rawLabels : [rawLabels];
       const cleanLabels = labelArr.map((l: any) => String(l).trim()).filter(Boolean);

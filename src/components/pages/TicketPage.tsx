@@ -537,7 +537,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...result,
+          labels: [result.jira_label || result.label || "Development", result.scope_label].filter(Boolean),
           label: result.jira_label || result.label || "Development",
+          scope_label: result.scope_label,
           auth_type: config.auth_type,
           access_token: config.access_token,
           cloud_id: config.cloud_id,
@@ -572,6 +574,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                 jira_key: data.issue_key,
                 jira_url: data.issue_url,
                 jira_label: result.jira_label || result.label || "Development",
+                scope_label: result.scope_label,
               },
             };
           });
@@ -634,7 +637,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           evidence: result.evidence,
           priority: result.priority,
           assignee_id: result.assignee_id,
+          labels: [result.jira_label || result.label || "Development", result.scope_label].filter(Boolean),
           jira_label: result.jira_label || result.label || "Development",
+          scope_label: result.scope_label,
           label: result.jira_label || result.label || "Development",
           auth_type: config.auth_type,
           access_token: config.access_token,
@@ -840,7 +845,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     currentSessionId: string,
     messagesForRequest: ChatMessage[],
     apiKey: string,
-    inheritedJiraInfo?: { jira_key?: string; jira_url?: string; jira_label?: string }
+    inheritedJiraInfo?: { jira_key?: string; jira_url?: string; jira_label?: string; scope_label?: string }
   ) => {
     setIsLoading(true);
     try {
@@ -917,6 +922,9 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         ticketResult.jira_url = inheritedJiraInfo.jira_url;
         if (inheritedJiraInfo.jira_label && !ticketResult.jira_label) {
           ticketResult.jira_label = inheritedJiraInfo.jira_label;
+        }
+        if (inheritedJiraInfo.scope_label && !ticketResult.scope_label) {
+          ticketResult.scope_label = inheritedJiraInfo.scope_label;
         }
       }
 
@@ -1100,6 +1108,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           jira_key: pairedAssistant.ticket_result.jira_key,
           jira_url: pairedAssistant.ticket_result.jira_url,
           jira_label: pairedAssistant.ticket_result.jira_label,
+          scope_label: pairedAssistant.ticket_result.scope_label,
         }
       : undefined;
 
@@ -1149,6 +1158,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           jira_key: pairedAssistant.ticket_result.jira_key,
           jira_url: pairedAssistant.ticket_result.jira_url,
           jira_label: pairedAssistant.ticket_result.jira_label,
+          scope_label: pairedAssistant.ticket_result.scope_label,
         }
       : undefined;
 
@@ -1203,6 +1213,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           jira_key: pairedAssistant.ticket_result.jira_key,
           jira_url: pairedAssistant.ticket_result.jira_url,
           jira_label: pairedAssistant.ticket_result.jira_label,
+          scope_label: pairedAssistant.ticket_result.scope_label,
         }
       : undefined;
 
