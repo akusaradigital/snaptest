@@ -488,7 +488,7 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
             {filtered.map((tc) => {
               const rs = runStatus[caseKey(tc)];
               const tcStatus = (rs?.status || "pending").toUpperCase();
-              // ponytail: key edit state by case number — filtered index shifts under filters
+              // ponytail: key edit state by case number because filtered index shifts under filters
               const isEditing = editIdx === tc.number;
               const startEdit = () => { setEditIdx(tc.number); setEditDraft({ name: tc.name, pre_condition: tc.pre_condition, test_steps: tc.test_steps, expected_result: tc.expected_result }); };
               const saveEdit = () => {
@@ -558,7 +558,7 @@ export default function TestCaseTable({ markdown, testCases, scripts, selectedId
                       {(() => {
                         const hasScript = !!scripts.find(s => s.file_name === tc.file_name);
                         const rs = runStatus[caseKey(tc)];
-                        if (!hasScript) return <span className="text-slate-200">—</span>;
+                        if (!hasScript) return <span className="text-slate-200">-</span>;
                         if (rs?.status === 'running') return <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />;
                         return (
                           <button

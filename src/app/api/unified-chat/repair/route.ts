@@ -51,7 +51,7 @@ export async function POST(req: Request) {
 
     if (!PROVIDERS.has(provider)) throw new Error('ai_provider is unsupported');
     if (!model) throw new Error('ai_model must be a non-empty string');
-    if (provider !== '9router' && !(provider === '9router-public' ? publicKey : regularKey)) throw new Error('Provider API key is required');
+    if (provider !== '9router' && provider !== '9router-public' && !regularKey) throw new Error('Provider API key is required');
     if (provider === '9router-public' && !publicUrl) throw new Error('nine_router_public_url is required');
 
     const usage: UsageOut = {};

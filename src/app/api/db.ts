@@ -8,8 +8,15 @@ let sql: NeonQueryFunction<false, false> | null = null;
 
 function getSQL(): NeonQueryFunction<false, false> {
   if (!sql) {
-    const url = process.env.DATABASE_URL;
+    let url = process.env.DATABASE_URL || '';
     if (!url) throw new Error('DATABASE_URL environment variable is not set');
+    // If multiple DATABASE_URL assignments were accidentally concatenated
+    if (url.includes('DATABASE_URL=')) {
+      url = url.split('DATABASE_URL=').pop() || url;
+    }
+    // Clean up duplicate query parameters like sslmode=requiresslmode=require
+    url = url.replace(/sslmode=requiresslmode=require/g, 'sslmode=require');
+    url = url.trim();
     sql = neon(url);
   }
   return sql;
@@ -79,6 +86,7 @@ export async function initDB() {
 let migrated = false;
 export async function ensureSchema() {
   if (migrated) return;
+  if (!process.env.DATABASE_URL?.trim()) return;
   const db = getSQL();
   await db`ALTER TABLE history ADD COLUMN IF NOT EXISTS user_id TEXT`;
   await db`ALTER TABLE history ADD COLUMN IF NOT EXISTS is_public BOOLEAN DEFAULT false`;
@@ -196,7 +204,7 @@ export async function ensureSchema() {
   // Fire-and-forget: Auto Garbage Collection
   // We do it asynchronously without awaiting so it doesn't block the request.
   db`DELETE FROM crawl_cache WHERE created_at::timestamp < NOW() - INTERVAL '48 hours'`.catch(console.error);
-  db`DELETE FROM usage_log WHERE created_at::timestamp < NOW() - INTERVAL '30 days'`.catch(console.error);
+  db`DELETE FROM usage_log WHERE created_at::timestamp < NOW() - INTERVAL '365 days'`.catch(console.error);
   db`DELETE FROM script_cache WHERE created_at::timestamp < NOW() - INTERVAL '30 days'`.catch(console.error);
 
   migrated = true;
@@ -215,7 +223,7 @@ export async function logUsage(params: {
   cache_read_tokens?: number;
   cache_creation_tokens?: number;
 }) {
-  if (!params.user_id) return;
+  if (!params.user_id || !process.env.DATABASE_URL?.trim()) return;
   try {
     await ensureSchema();
     const db = getSQL();

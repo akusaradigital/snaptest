@@ -241,7 +241,7 @@ export default function ScriptViewer({ scripts, baseUrl }: ScriptViewerProps) {
 
             {/* Live Status Badge */}
             {currentRunState.status === "running" && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 animate-pulse">
+              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 <Loader2 className="w-3 h-3 animate-spin text-indigo-600" />
                 <span>Running ({liveElapsed}s)</span>
               </span>

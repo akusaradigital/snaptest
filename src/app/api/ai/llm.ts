@@ -16,12 +16,38 @@ async function providerFetch(url: string, init: RequestInit): Promise<Response> 
     if (error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
       throw new Error('AI provider request timed out. Please try again.');
     }
+    // Fallback: If 127.0.0.1 failed on Windows, try localhost (or vice versa for IPv4/IPv6 dual-stack)
+    if (url.includes('127.0.0.1:20128')) {
+      try {
+        const altUrl = url.replace('127.0.0.1:20128', 'localhost:20128');
+        return await fetch(altUrl, { ...init, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+      } catch {}
+    } else if (url.includes('localhost:20128')) {
+      try {
+        const altUrl = url.replace('localhost:20128', '127.0.0.1:20128');
+        return await fetch(altUrl, { ...init, signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS) });
+      } catch {}
+    }
     throw new Error('Unable to reach the AI provider. Please check its configuration and try again.');
   }
 }
 
-function providerError(provider: string, status: number): Error {
-  return new Error(`${provider} API request failed (status ${status}). Check the provider configuration and try again.`);
+function providerError(provider: string, status: number, respBody?: string | any): Error {
+  let detail = '';
+  if (respBody) {
+    if (typeof respBody === 'object') {
+      detail = respBody.error?.message || respBody.message || respBody.detail || '';
+    } else if (typeof respBody === 'string') {
+      try {
+        const parsed = JSON.parse(respBody);
+        detail = parsed.error?.message || parsed.message || parsed.detail || (typeof parsed.error === 'string' ? parsed.error : '');
+      } catch {
+        if (respBody.length < 200) detail = respBody.trim();
+      }
+    }
+  }
+  const detailSuffix = detail ? `: ${detail}` : '';
+  return new Error(`${provider} API request failed (status ${status})${detailSuffix}. Check the provider configuration and try again.`);
 }
 
 export function isNativeVisionModel(provider: string, model: string): boolean {
@@ -220,8 +246,8 @@ export async function callVisionLLM(
   isFallbackRetry: boolean = false
 ): Promise<string> {
   const p = validateProvider(provider);
-  const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
-  if (!effectiveKey && p !== '9router-public') throw new Error(`API key for provider ${p} is empty`);
+  const effectiveKey = (p === '9router' && (!apiKey || apiKey === '9router-local-key')) ? '' : apiKey;
+  if (!effectiveKey && p !== '9router-public' && p !== '9router') throw new Error(`API key for provider ${p} is empty`);
 
   const { mimeType, base64, dataUrl } = parseImageData(imageBase64);
 
@@ -249,7 +275,7 @@ export async function callVisionLLM(
       body: JSON.stringify(payload),
     });
     const data = await response.json();
-    if (!response.ok) throw providerError('Anthropic', response.status);
+    if (!response.ok) throw providerError('Anthropic', response.status, data);
     if (usageOut && data.usage) usageOut.totalTokens = (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0);
     if (completionOut) completionOut.finishReason = data.stop_reason;
     return data.content?.[0]?.text?.trim() || '';
@@ -274,7 +300,7 @@ export async function callVisionLLM(
     };
     const response = await providerFetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await response.json();
-    if (!response.ok) throw providerError('Gemini', response.status);
+    if (!response.ok) throw providerError('Gemini', response.status, data);
     if (usageOut && data.usageMetadata) usageOut.totalTokens = data.usageMetadata.totalTokenCount;
     if (completionOut) completionOut.finishReason = data.candidates?.[0]?.finishReason;
     return data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
@@ -328,7 +354,13 @@ export async function callVisionLLM(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (effectiveKey) headers.Authorization = `Bearer ${effectiveKey}`;
+  if (p === '9router') {
+    if (effectiveKey && effectiveKey !== '9router-local-key' && !effectiveKey.includes('local') && effectiveKey.length > 10) {
+      headers.Authorization = `Bearer ${effectiveKey}`;
+    }
+  } else if (effectiveKey && effectiveKey !== '9router-local-key') {
+    headers.Authorization = `Bearer ${effectiveKey}`;
+  }
   const response = await providerFetch(baseURL, { method: 'POST', headers, body: JSON.stringify(payload) });
   const respText = await response.text();
   let data: any = null;
@@ -356,7 +388,7 @@ export async function callVisionLLM(
       );
     }
 
-    throw providerError(provider, response.status);
+    throw providerError(provider, response.status, respText);
   }
 
   const promptFeedback = data?.response?.promptFeedback || data?.promptFeedback;
@@ -444,8 +476,8 @@ export async function callLLM(
   isFallbackRetry: boolean = false
 ): Promise<string> {
   const p = validateProvider(provider);
-  const effectiveKey = (p === '9router' && !apiKey) ? '9router-local-key' : apiKey;
-  if (!effectiveKey && p !== '9router-public') {
+  const effectiveKey = (p === '9router' && (!apiKey || apiKey === '9router-local-key')) ? '' : apiKey;
+  if (!effectiveKey && p !== '9router-public' && p !== '9router') {
     throw new Error(`API key for provider ${p} is empty`);
   }
 
@@ -484,7 +516,7 @@ export async function callLLM(
 
     const respText = await response.text();
     if (!response.ok) {
-      throw providerError('Gemini', response.status);
+      throw providerError('Gemini', response.status, respText);
     }
 
     const data = JSON.parse(respText);
@@ -556,7 +588,7 @@ export async function callLLM(
 
     const respText = await response.text();
     if (!response.ok) {
-      throw providerError('Anthropic', response.status);
+      throw providerError('Anthropic', response.status, respText);
     }
 
     const data = JSON.parse(respText);
@@ -626,17 +658,37 @@ export async function callLLM(
   }
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (effectiveKey) headers.Authorization = `Bearer ${effectiveKey}`;
+  if (p === '9router') {
+    if (effectiveKey && effectiveKey !== '9router-local-key' && !effectiveKey.includes('local') && effectiveKey.length > 10) {
+      headers.Authorization = `Bearer ${effectiveKey}`;
+    }
+  } else if (effectiveKey && effectiveKey !== '9router-local-key') {
+    headers.Authorization = `Bearer ${effectiveKey}`;
+  }
 
-  const response = await providerFetch(baseURL, {
+  let response = await providerFetch(baseURL, {
     method: 'POST',
     headers,
     body: JSON.stringify(payload)
   });
 
-  const respText = await response.text();
+  let respText = await response.text();
+  // Self-healing: if provider/model rejected response_format: { type: 'json_object' }, retry once without it
+  if (!response.ok && jsonMode && (response.status === 400 || response.status === 422)) {
+    delete payload.response_format;
+    const retryResp = await providerFetch(baseURL, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (retryResp.ok) {
+      response = retryResp;
+      respText = await retryResp.text();
+    }
+  }
+
   if (!response.ok) {
-    throw providerError(provider, response.status);
+    throw providerError(provider, response.status, respText);
   }
 
   const data = JSON.parse(respText);

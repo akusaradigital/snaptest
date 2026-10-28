@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getEffectiveAiRules, rememberAiRule, getStoredAiMemory } from '../src/lib/aiMemory';
+import { getEffectiveAiRules, rememberAiRule, getStoredAiMemory, buildFeedbackDirectives } from '../src/lib/aiMemory';
 
 // Mock localStorage
 const store = new Map<string, string>();
@@ -44,5 +44,15 @@ rememberAiRule('Gunakan format [Modul] - Masalah pada judul bug', 'ticket');
 const mem2 = getStoredAiMemory();
 const count = (mem2.ticketCustomPrompt?.match(/Gunakan format \[Modul\]/g) || []).length;
 assert.equal(count, 1, 'Duplicate rule should not be appended again');
+
+// 5. Feedback directives
+const noFeedback = buildFeedbackDirectives([]);
+assert.equal(noFeedback, '');
+
+const withDislike = buildFeedbackDirectives([{ role: 'assistant', feedback: 'dislike' }]);
+assert.ok(withDislike.includes('[USER FEEDBACK - QUALITY IMPROVEMENT]'));
+
+const withLike = buildFeedbackDirectives([{ role: 'assistant', feedback: 'like' }]);
+assert.ok(withLike.includes('[USER FEEDBACK - PREFERRED QUALITY]'));
 
 console.log('PASS ai-memory-check');

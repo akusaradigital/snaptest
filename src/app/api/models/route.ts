@@ -35,7 +35,12 @@ export async function GET() {
   try {
     const ctrl = new AbortController();
     const tid = setTimeout(() => ctrl.abort(), 1500);
-    const res = await fetch('http://127.0.0.1:20128/v1/models', { signal: ctrl.signal });
+    let res: Response;
+    try {
+      res = await fetch('http://127.0.0.1:20128/v1/models', { signal: ctrl.signal });
+    } catch {
+      res = await fetch('http://localhost:20128/v1/models', { signal: ctrl.signal });
+    }
     clearTimeout(tid);
     if (res.ok) {
       const data = await res.json();

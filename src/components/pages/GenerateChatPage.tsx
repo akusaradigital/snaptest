@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { getAiRequestPayload, getApiKey } from "@/lib/keys";
-import { getEffectiveAiRules, rememberAiRule } from "@/lib/aiMemory";
+import { getEffectiveAiRules, rememberAiRule, buildFeedbackDirectives } from "@/lib/aiMemory";
 import { useServerSessions } from "@/lib/useServerSessions";
 import { classifyUnifiedQaIntent, createSseParser, withTestCaseClientIds } from "@/lib/unifiedQaChat.mjs";
 import type { UnifiedQaArtifacts, UnifiedQaIntent, UnifiedQaSession } from "@/types/unifiedQaChat";
@@ -10,6 +10,7 @@ import toast from "react-hot-toast";
 import TestCaseTable from "@/components/TestCaseTable";
 import ScriptViewer from "@/components/ScriptViewer";
 import ScriptDiffViewer from "@/components/ScriptDiffViewer";
+import SpreadsheetModal from "@/components/SpreadsheetModal";
 import { generatePlaywrightConfig } from "@/lib/playwrightConfig";
 import { GenerateResponse, ScriptFile, TestCase } from "@/types";
 import {
@@ -20,21 +21,22 @@ import {
   Bot,
   Loader2,
   Send,
-  Paperclip,
   Upload,
   Globe,
   FileText,
   Download,
-  FolderOpen,
   Search,
   Edit2,
   Copy,
-  FlaskConical,
+  Check,
+  ThumbsUp,
+  ThumbsDown,
+  MoreHorizontal,
   Sparkles,
   Maximize2,
-  ChevronDown,
-  ChevronUp,
-  Wrench,
+  PanelLeft,
+  RotateCcw,
+  Zap,
 } from "lucide-react";
 
 // ── types ──────────────────────────────────────────────────────────────────
@@ -47,6 +49,13 @@ interface GenMessage {
   status?: "generating" | "complete" | "error";
   result?: GenerateResponse;
   timestamp: string;
+  feedback?: "like" | "dislike";
+  retryAction?: {
+    type: "script" | "generate";
+    framework?: "playwright" | "cypress" | "gherkin";
+    text?: string;
+    file?: UploadedFile | null;
+  };
 }
 
 interface GenSession extends UnifiedQaSession, Record<string, unknown> {
@@ -173,8 +182,9 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
   // ── sidebar / sessions ──────────────────────────────────────────────────
   const [sessions, setSessions] = useState<GenSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
+  const [showHistorySidebar, setShowHistorySidebar] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false); // kept for possible future use
+  const historyRef = useRef<HTMLDivElement>(null); // kept for possible future use
 
   useEffect(() => {
     if (!historyOpen) return;
@@ -211,7 +221,24 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
   const [renameValue, setRenameValue] = useState("");
   const [confirmation, setConfirmation] = useState<"repair" | "jira" | "aksora" | null>(null);
   const [isFullModalOpen, setIsFullModalOpen] = useState(false);
-  const [isDockCollapsed, setIsDockCollapsed] = useState(false);
+  const [selectedModalResult, setSelectedModalResult] = useState<GenerateResponse | null>(null);
+  const setActiveResult = setSelectedModalResult;
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [messageFeedback, setMessageFeedback] = useState<Record<string, "like" | "dislike">>({});
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close message options menu on click outside
+  useEffect(() => {
+    if (!activeMenuMsgId) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuMsgId(null);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [activeMenuMsgId]);
 
   const serverSessions = useServerSessions<GenSession>("unified-qa-chat", "snaptest_generate_summaries_cache_v1");
 
@@ -532,42 +559,119 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     saveSessions(nextSessions, { ...session, title: trimmed });
   };
 
+  // ── message feedback & actions (matching Image #9) ────────────────────────
+  const handleToggleFeedback = (msgId: string, rating: "like" | "dislike") => {
+    const current = messageFeedback[msgId];
+    const next = current === rating ? undefined : rating;
+
+    setMessageFeedback((prev) => {
+      const copy = { ...prev };
+      if (next) copy[msgId] = next;
+      else delete copy[msgId];
+      return copy;
+    });
+
+    setSessions((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        const updatedSession = {
+          ...s,
+          messages: s.messages.map((m) => (m.id === msgId ? { ...m, feedback: next } : m)),
+        };
+        void serverSessions.saveToServer(s.id, s.title, updatedSession).catch(() => {});
+        return updatedSession;
+      });
+      try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
+    if (next === "like") {
+      toast.success("Helpful response recorded! 👍 (AI will maintain this format)");
+    } else if (next === "dislike") {
+      toast("Marked as needs improvement 👎 (AI will refine future answers)", { icon: "👎" });
+    } else {
+      toast("Feedback removed", { icon: "↩️" });
+    }
+  };
+
+  const handleCopyMessage = async (msg: GenMessage, asMarkdown = false) => {
+    let text = msg.content;
+    if (asMarkdown && msg.result?.test_cases?.length) {
+      text += "\n\n### Generated Test Cases\n\n";
+      text += "| # | Test Name | Type | Priority | Expected Result |\n";
+      text += "|---|-----------|------|----------|-----------------|\n";
+      text += msg.result.test_cases
+        .map(
+          (tc, i) =>
+            `| ${i + 1} | ${(tc.name || "").replace(/\|/g, "-")} | ${tc.type || "POSITIVE"} | ${tc.priority || "P1"} | ${(tc.expected_result || "-").replace(/\|/g, "-")} |`
+        )
+        .join("\n");
+    }
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedMsgId(msg.id);
+      setTimeout(() => setCopiedMsgId(null), 2000);
+      toast.success("Copied to clipboard!");
+    } catch {
+      toast.error("Failed to copy to clipboard");
+    }
+  };
+
+  const handleDeleteMessage = (msgId: string) => {
+    if (!activeSessionId) return;
+    setSessions((prev) => {
+      const updated = prev.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        const filtered = s.messages.filter((m) => m.id !== msgId);
+        const updatedSession = { ...s, messages: filtered, updatedAt: fmtDate() };
+        void serverSessions.saveToServer(s.id, s.title, updatedSession).catch(() => {});
+        return updatedSession;
+      });
+      try { localStorage.setItem(GEN_SESSIONS_STORAGE, JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    toast.success("Message deleted");
+  };
+
   // ── send / SSE ───────────────────────────────────────────────────────────
-  const handleSend = async (e?: React.FormEvent) => {
+  const handleSend = async (e?: React.FormEvent, customPrompt?: string, customFile?: UploadedFile | null) => {
     if (e) e.preventDefault();
 
-    const kind = detectKind(inputText, uploadedFile);
+    const promptText = (customPrompt !== undefined ? customPrompt : inputText).trim();
+    const fileToUse = customFile !== undefined ? customFile : uploadedFile;
+
+    const kind = detectKind(promptText, fileToUse);
     if (kind === "empty") { toast.error("Enter a URL, paste a screenshot, or upload a file."); return; }
     if (!aiProvider || !aiModel) { toast.error("Select AI Provider & Model in AI Settings (top-right) first."); return; }
 
-    const intent = classifyUnifiedQaIntent(inputText) as UnifiedQaIntent;
-    const isCypressIntent = /\bcypress\b/i.test(inputText);
+    const intent = classifyUnifiedQaIntent(promptText) as UnifiedQaIntent;
+    const isCypressIntent = /\bcypress\b/i.test(promptText);
     if ((intent === "generate_playwright" || intent === "generate_gherkin" || isCypressIntent) && activeResult) {
       if (isCypressIntent) setScriptFramework("cypress");
       else if (intent === "generate_playwright") setScriptFramework("playwright");
       await handleScriptGeneration(intent === "generate_gherkin" ? "gherkin" : isCypressIntent ? "cypress" : "playwright");
-      setInputText("");
+      if (customPrompt === undefined) setInputText("");
       return;
     }
     if (intent === "run" && activeSession?.artifacts?.selectedIds.length) {
-      await runSelected(); setInputText(""); return;
+      await runSelected(); if (customPrompt === undefined) setInputText(""); return;
     }
     if (intent === "repair" || intent === "analyze") {
-      await proposeRepair(); setInputText(""); return;
+      await proposeRepair(); if (customPrompt === undefined) setInputText(""); return;
     }
     if (intent === "apply_repair") {
       if (!activeSession?.artifacts?.repair) toast.error("No repair proposal is ready.");
       else setConfirmation("repair");
-      setInputText(""); return;
+      if (customPrompt === undefined) setInputText(""); return;
     }
-    if (intent === "jira_draft") { await draftJira(); setInputText(""); return; }
+    if (intent === "jira_draft") { await draftJira(); if (customPrompt === undefined) setInputText(""); return; }
     if (intent === "jira_create") {
       if (!activeSession?.artifacts?.jiraDraft) toast.error("Create a Jira draft first."); else setConfirmation("jira");
-      setInputText(""); return;
+      if (customPrompt === undefined) setInputText(""); return;
     }
     if (intent === "aksora_create") {
       if (!activeSession?.artifacts?.jiraDraft) toast.error('Create a ticket draft first (e.g. "draft jira").'); else setConfirmation("aksora");
-      setInputText(""); return;
+      if (customPrompt === undefined) setInputText(""); return;
     }
 
     // create session if needed
@@ -576,7 +680,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
 
     if (!sessionId || !currentSessions.find((s) => s.id === sessionId)) {
       const id = crypto.randomUUID();
-      const s: GenSession = { id, title: inputText.trim().substring(0, 40) || "New Generate Chat", updatedAt: fmtDate(), messages: [] };
+      const s: GenSession = { id, title: promptText.substring(0, 40) || "New Generate Chat", updatedAt: fmtDate(), messages: [] };
       currentSessions = [s, ...currentSessions];
       sessionId = id;
       setActiveSessionId(id);
@@ -585,8 +689,8 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     const userMsg: GenMessage = {
       id: crypto.randomUUID(),
       role: "user",
-      content: uploadedFile ? `${inputText.trim() || "Analyze this file"} (${uploadedFile.name})` : inputText.trim(),
-      image_preview: uploadedFile?.type === "image" ? uploadedFile.preview : undefined,
+      content: fileToUse ? `${promptText || "Analyze this file"} (${fileToUse.name})` : promptText,
+      image_preview: fileToUse?.type === "image" ? fileToUse.preview : undefined,
       timestamp: fmtTime(),
     };
 
@@ -596,20 +700,27 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       content: "Starting generation...",
       status: "generating",
       timestamp: fmtTime(),
+      retryAction: {
+        type: "generate",
+        text: promptText,
+        file: fileToUse,
+      },
     };
 
     const target = currentSessions.find((s) => s.id === sessionId)!;
     if (target.messages.length === 0) {
-      target.title = inputText.trim().substring(0, 40) || (uploadedFile?.name ?? "Generate Chat");
+      target.title = promptText.substring(0, 40) || (fileToUse?.name ?? "Generate Chat");
     }
     target.messages = [...target.messages, userMsg, aiPlaceholder];
     target.updatedAt = fmtDate();
 
     saveSessions(currentSessions, { ...target });
 
-    const currentInputText = inputText.trim();
-    setInputText("");
-    setUploadedFile(null);
+    const currentInputText = promptText;
+    if (customPrompt === undefined) {
+      setInputText("");
+      setUploadedFile(null);
+    }
     setIsLoading(true);
 
     const updatePlaceholder = (content: string, extra?: Partial<GenMessage>) => {
@@ -637,12 +748,14 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     if (isConversational) {
       updatePlaceholder("Thinking...", { status: "generating" });
       try {
+        const feedbackDirectives = buildFeedbackDirectives(activeSession?.messages || []);
+        const combinedRules = [getEffectiveAiRules("generator"), feedbackDirectives].filter(Boolean).join("\n\n");
         const chatRes = await fetch("/api/generate/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             message: currentInputText,
-            custom_rules: getEffectiveAiRules("generator"),
+            custom_rules: combinedRules,
             active_test_cases: activeResult?.test_cases?.slice(0, 10).map((tc: any) => `${tc.id || tc.number}: ${tc.name || tc.scenario}`).join("\n"),
             ...aiPayload,
           }),
@@ -703,14 +816,14 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       : kind === "figma" ? currentInputText
       : "document://input";
 
-    const isImage = uploadedFile?.type === "image";
+    const isImage = fileToUse?.type === "image";
     const hasLiveUrl = Boolean(resolvedUrl && /^https?:\/\//i.test(resolvedUrl));
 
     const crawlMode = (hasLiveUrl && isImage)
       ? "hybrid"
       : isImage
       ? "vision"
-      : (uploadedFile?.type === "pdf" || kind === "goal")
+      : (fileToUse?.type === "pdf" || kind === "goal")
       ? "document"
       : "static";
 
@@ -718,12 +831,12 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
       url: resolvedUrl,
       user_context: currentInputText.trim()
         ? currentInputText.trim()
-        : (uploadedFile ? `Test the ${uploadedFile.name}` : `Test the ${resolvedUrl}`),
-      document_title: uploadedFile?.name,
-      document_text: uploadedFile?.type === "pdf" ? (uploadedFile.text || "") : undefined,
-      document_image_base64: isImage ? uploadedFile.imageBase64 : undefined,
+        : (fileToUse ? `Test the ${fileToUse.name}` : `Test the ${resolvedUrl}`),
+      document_title: fileToUse?.name,
+      document_text: fileToUse?.type === "pdf" ? (fileToUse.text || "") : undefined,
+      document_image_base64: isImage ? fileToUse.imageBase64 : undefined,
       ...aiPayload,
-      custom_prompt: getEffectiveAiRules("generator"),
+      custom_prompt: [getEffectiveAiRules("generator"), buildFeedbackDirectives(activeSession?.messages || [])].filter(Boolean).join("\n\n"),
       framework: "playwright",
       language: "typescript",
       fast_mode: false,
@@ -774,7 +887,7 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         const topCases = result.test_cases.slice(0, 5);
         topCases.forEach((tc: TestCase, i: number) => {
           const emoji = tc.type === 'SECURITY' ? '🔒' : tc.type === 'NEGATIVE' ? '❌' : '✅';
-          summaryText += `${i + 1}. ${emoji} **${tc.name}** — ${tc.expected_result} [${tc.priority}]\n`;
+          summaryText += `${i + 1}. ${emoji} **${tc.name}**: ${tc.expected_result} [${tc.priority}]\n`;
         });
         if (result.test_cases.length > 5) {
           summaryText += `\n*...and ${result.test_cases.length - 5} more test cases.*\n`;
@@ -901,6 +1014,10 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         : `Generating ${fwLabel} ${langLabel} scripts ${scopeLabel}...`,
       status: "generating",
       timestamp: fmtTime(),
+      retryAction: {
+        type: "script",
+        framework: fw as "playwright" | "cypress" | "gherkin",
+      },
     };
 
     setSessions((prev) => {
@@ -1035,6 +1152,50 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     } finally {
       setGeneratingScript(null);
     }
+  };
+
+  // ── restart / retry AI agent ───────────────────────────────────────────────
+  const handleRetryAgent = async (msg: GenMessage, idx: number) => {
+    if (isLoading || !!generatingScript) return;
+
+    // Check if this was a script generation failure
+    const isScript =
+      msg.retryAction?.type === "script" ||
+      msg.content.toLowerCase().includes("script") ||
+      msg.content.toLowerCase().includes("playwright") ||
+      msg.content.toLowerCase().includes("cypress") ||
+      msg.content.toLowerCase().includes("gherkin");
+
+    if (isScript) {
+      let fw: "playwright" | "cypress" | "gherkin" = "playwright";
+      if (msg.retryAction?.framework) fw = msg.retryAction.framework;
+      else if (msg.content.toLowerCase().includes("cypress")) fw = "cypress";
+      else if (msg.content.toLowerCase().includes("gherkin")) fw = "gherkin";
+      toast.loading(`Restarting AI agent: ${fw} generation...`, { duration: 1500 });
+      await handleScriptGeneration(fw);
+      return;
+    }
+
+    // Otherwise, it was prompt / test case generation
+    const textToRetry =
+      msg.retryAction?.text ||
+      activeSession?.messages
+        .slice(0, idx)
+        .reverse()
+        .find((m) => m.role === "user")?.content;
+
+    if (!textToRetry) {
+      toast.error("Could not find previous prompt to retry.");
+      return;
+    }
+
+    const isDisliked = msg.feedback === "dislike" || messageFeedback[msg.id] === "dislike";
+    const promptToSend = isDisliked
+      ? `[Instruction: The previous response was marked unsatisfactory (👎). Please regenerate a higher-quality response with complete test coverage, precise assertions, robust locators, and realistic edge cases.]\n\n${textToRetry}`
+      : textToRetry;
+
+    toast.loading(isDisliked ? "Regenerating improved AI response..." : "Restarting AI agent...", { duration: 1500 });
+    await handleSend(undefined, promptToSend, msg.retryAction?.file || null);
   };
 
   const runSelected = async () => {
@@ -1189,155 +1350,165 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
     }
   };
 
-  // ── input badge ───────────────────────────────────────────────────────────
-  const kind = detectKind(inputText, uploadedFile);
-  const inputBadge = (() => {
-    if (uploadedFile) return null;
-    if (kind === "figma") return <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300">Figma</span>;
-    if (kind === "url") return <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"><Globe className="w-3 h-3" />URL</span>;
-    if (kind === "goal") return <span className="inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">text</span>;
-    return null;
-  })();
-
   const busy = isLoading || parsingDoc || !!generatingScript;
   const filteredSessions = sessions.filter((s) =>
     !sessionSearch || s.title.toLowerCase().includes(sessionSearch.toLowerCase())
   );
 
   return (
-    <div className="flex h-[calc(100vh-140px)] gap-4">
-      {/* ── LEFT SIDEBAR: narrow rail that expands into the full drawer on hover ── */}
-      <div ref={historyRef} className="relative shrink-0 h-full z-20">
-        <div
-          onClick={() => setHistoryOpen((o) => !o)}
-          className="w-12 h-full border-r border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/40 flex flex-col items-center py-4 gap-2 cursor-pointer"
-        >
+    <div className="flex h-full w-full overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm font-sans">
+      {/* ── LEFT PANEL: sessions list (collapsible) ── */}
+      <div className={`transition-all duration-300 ease-in-out border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col shrink-0 ${
+        showHistorySidebar ? "w-64" : "w-0 overflow-hidden border-r-0"
+      }`}>
+        {/* Header */}
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider">Test Chats ({sessions.length})</span>
+          </div>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); handleNewSession(); }}
-            className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition"
+            onClick={handleNewSession}
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             title="New Generation Chat"
           >
             <PlusCircle className="w-4 h-4" />
           </button>
-          <div className="w-6 h-px bg-slate-200 dark:bg-slate-700 my-1" />
-          <div className="flex flex-col items-center gap-1 text-slate-400" title={`${sessions.length} saved chats`}>
-            <Clock className="w-4 h-4" />
-            <span className="text-[10px] font-semibold">{sessions.length}</span>
-          </div>
         </div>
 
-        <div className={`absolute left-0 top-0 w-[280px] h-full border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 shadow-xl p-4 flex flex-col overflow-hidden transition-all duration-150 ${historyOpen ? "opacity-100 visible translate-x-0" : "opacity-0 invisible -translate-x-1 pointer-events-none"}`}>
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
-            <Clock className="w-3.5 h-3.5" />
-            CHAT HISTORY ({sessions.length})
-          </h3>
+        {/* Search */}
+        {sessions.length > 0 && (
+          <div className="relative px-3 pt-2.5 pb-1 shrink-0">
+            <Search className="w-3 h-3 text-slate-400 absolute left-5.5 top-1/2 translate-y-0.5 pointer-events-none" style={{ left: "1.25rem", top: "1.35rem" }} />
+            <input
+              type="text"
+              value={sessionSearch}
+              onChange={(e) => setSessionSearch(e.target.value)}
+              placeholder="Search chats..."
+              className="w-full text-xs pl-7 pr-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+            />
+          </div>
+        )}
+
+        {/* Session list */}
+        <div className="flex-1 min-h-0 overflow-y-auto py-2 px-2 space-y-1">
+          {filteredSessions.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-10 text-center px-3">
+              <Sparkles className="w-6 h-6 text-slate-300 dark:text-slate-600 mb-2" />
+              <p className="text-xs text-slate-400">No saved chats yet.</p>
+            </div>
+          )}
+          {filteredSessions.map((s) => {
+            const isRenaming = renamingId === s.id;
+            return (
+              <div
+                key={s.id}
+                onClick={() => !isRenaming && setActiveSessionId(s.id)}
+                onDoubleClick={() => { setRenamingId(s.id); setRenameValue(s.title || ""); }}
+                className={`group px-3 py-2.5 rounded-xl text-left cursor-pointer transition flex items-center justify-between ${
+                  s.id === activeSessionId
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-800"
+                    : "hover:bg-white dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-transparent"
+                }`}
+              >
+                <div className="min-w-0 flex-1 mr-1">
+                  {isRenaming ? (
+                    <input
+                      autoFocus
+                      value={renameValue}
+                      onChange={(e) => setRenameValue(e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      onBlur={() => commitRename(s)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); commitRename(s); }
+                        if (e.key === "Escape") { setRenamingId(null); }
+                      }}
+                      className="w-full text-xs px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none bg-white dark:bg-slate-800 font-normal"
+                    />
+                  ) : (
+                    <p className={`text-xs truncate font-medium ${s.id === activeSessionId ? "text-indigo-900 dark:text-indigo-200" : "text-slate-700 dark:text-slate-300"}`}>{s.title || "Untitled Chat"}</p>
+                  )}
+                  <p className="text-[10px] text-slate-400 mt-0.5">{s.updatedAt}</p>
+                </div>
+                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
+                    className="p-1 rounded hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-slate-400 hover:text-indigo-600 transition"
+                    title="Rename"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleDeleteSession(s.id, e)}
+                    className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-slate-400 hover:text-red-500 transition"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── CENTER: CHAT + COMPOSER ── */}
+      <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
+        {/* Top bar with Toggle History */}
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setShowHistorySidebar(!showHistorySidebar)}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition shrink-0"
+              title={showHistorySidebar ? "Hide History" : "Show History"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-sm">
+              {activeSession ? activeSession.title : "New Test Chat"}
+            </span>
+          </div>
 
           <button
             type="button"
             onClick={handleNewSession}
-            className="w-full btn-primary text-xs flex items-center justify-center gap-2 py-2 mb-3"
+            className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700 shrink-0"
           >
-            <PlusCircle className="w-4 h-4" />
-            <span>New Generation Chat</span>
+            <PlusCircle className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            <span>New Chat</span>
           </button>
-
-          {sessions.length > 0 && (
-            <div className="relative mb-2">
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                value={sessionSearch}
-                onChange={(e) => setSessionSearch(e.target.value)}
-                placeholder="Search chats..."
-                className="w-full text-xs pl-8 pr-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-400"
-              />
-            </div>
-          )}
-
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
-            {filteredSessions.length === 0 && (
-              <p className="text-xs text-slate-400 text-center py-6">No saved chats yet.</p>
-            )}
-            {filteredSessions.map((s) => {
-              const isRenaming = renamingId === s.id;
-              return (
-                <div
-                  key={s.id}
-                  onClick={() => !isRenaming && setActiveSessionId(s.id)}
-                  onDoubleClick={() => { setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                  className={`group p-2.5 rounded-xl text-left cursor-pointer transition flex items-center justify-between ${
-                    s.id === activeSessionId
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold border border-indigo-200 dark:border-indigo-800"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-300"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1 mr-2">
-                    {isRenaming ? (
-                      <input
-                        autoFocus
-                        value={renameValue}
-                        onChange={(e) => setRenameValue(e.target.value)}
-                        onClick={(e) => e.stopPropagation()}
-                        onBlur={() => commitRename(s)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") { e.preventDefault(); commitRename(s); }
-                          if (e.key === "Escape") { setRenamingId(null); }
-                        }}
-                        className="w-full text-xs px-1.5 py-0.5 rounded border border-indigo-300 focus:outline-none bg-white dark:bg-slate-800 font-normal"
-                      />
-                    ) : (
-                      <p className="text-xs truncate">{s.title || "Untitled Chat"}</p>
-                    )}
-                    <p className="text-[10px] text-slate-400 mt-0.5">{s.updatedAt}</p>
-                  </div>
-
-                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
-                    <button
-                      type="button"
-                      onClick={(e) => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                      className="p-1 rounded hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition"
-                      title="Rename session"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteSession(s.id, e)}
-                      className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition"
-                      title="Delete session"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
         </div>
-      </div>
 
-      {/* ── CENTER: CHAT + COMPOSER (single column) ─────────────────────────── */}
-      <div className="flex flex-col min-w-0 min-h-0 flex-1 max-w-4xl mx-auto overflow-hidden">
         {/* Chat Feed */}
           <div className="flex-1 overflow-y-auto p-3 space-y-3 scrollbar-thin min-h-0 text-xs">
-            {messages.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-12 text-center p-4">
-                <Sparkles className="w-8 h-8 text-indigo-500 mb-2 opacity-80" />
-                <p className="font-semibold text-slate-700 dark:text-slate-300 mb-1">How can AI help you test?</p>
-                <p className="text-[11px] text-slate-400 max-w-xs mb-4">Paste a web URL, upload a PDF/screenshot, or describe test goals.</p>
-                <button
-                  type="button"
-                  onClick={() => setInputText("https://example.com/login")}
-                  className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 font-medium hover:bg-indigo-50 transition"
-                >
-                  💡 Try: https://example.com/login
-                </button>
+            {messages.length === 0 ? (
+              <div className="h-full flex flex-col items-center justify-center text-center p-6">
+                <div className="max-w-md flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center mb-3 text-indigo-600 dark:text-indigo-400">
+                    <Zap className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-1.5">
+                    Test Case Agent Workspace
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                    Paste a web URL, upload a PDF / screenshot, or describe test goals below to generate test cases, Playwright scripts, and Gherkin scenarios.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setInputText("https://example.com/login")}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 transition shadow-xs"
+                  >
+                    Example: https://example.com/login
+                  </button>
+                </div>
               </div>
-            )}
-
-            {messages.map((msg) => (
-              <div key={msg.id} className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+            ) : (
+              messages.map((msg, idx) => (
+              <div key={msg.id} className={`group flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
                 {msg.role === "assistant" && (
                   <div className="w-6 h-6 rounded-full bg-indigo-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
                     <Bot className="w-3.5 h-3.5" />
@@ -1372,12 +1543,31 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                             <span>⚠️ Generation interrupted</span>
                           </div>
                           <p className="text-[11px] text-slate-600 dark:text-slate-300">
-                            The generation was interrupted (browser was reloaded or closed). You can generate again or enter a new request below.
+                            The generation was interrupted (browser was reloaded or closed). You can restart the AI agent below.
                           </p>
                         </div>
                       )
                     ) : (
                       <span className="whitespace-pre-wrap leading-relaxed" dangerouslySetInnerHTML={{ __html: msg.content.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>") }} />
+                    )}
+
+                    {/* Restart / Retry AI Agent Button */}
+                    {msg.role === "assistant" && (msg.status === "error" || (msg.status === "generating" && !isLoading)) && (
+                      <div className="flex items-center gap-2 mt-2 pt-2 border-t border-red-200/60 dark:border-red-900/40">
+                        <button
+                          type="button"
+                          onClick={() => handleRetryAgent(msg, idx)}
+                          disabled={isLoading || !!generatingScript}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-700 active:bg-red-800 text-white text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                          title="Restart hit AI Agent"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Restart AI Agent</span>
+                        </button>
+                        <span className="text-[11px] text-red-600 dark:text-red-400 font-medium">
+                          Click to restart AI agent
+                        </span>
+                      </div>
                     )}
                   </div>
 
@@ -1385,334 +1575,296 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
                     <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
                       <button
                         type="button"
-                        onClick={() => { setWorkspaceTab("cases"); setIsFullModalOpen(true); }}
+                        onClick={() => {
+                          if (msg.result) setActiveResult(msg.result);
+                          setWorkspaceTab("cases");
+                          setIsFullModalOpen(true);
+                        }}
                         className="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium transition flex items-center gap-1.5 shadow-sm"
-                        title="View Generated Test Cases in Full Width Popup"
                       >
                         <Maximize2 className="w-3.5 h-3.5" />
                         <span>View Test Cases ({msg.result.test_cases?.length || 0})</span>
                       </button>
 
-                      {/* Language & Framework Controls */}
+                      {/* Framework / Language */}
                       <div className="flex items-center gap-1 p-0.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs">
                         <div className="flex items-center bg-white dark:bg-slate-700 rounded-md p-0.5 shadow-xs border border-slate-200 dark:border-slate-600">
-                          <button
-                            type="button"
-                            onClick={() => setScriptFramework("playwright")}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                              scriptFramework === "playwright"
-                                ? "bg-indigo-600 text-white"
-                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
-                            }`}
-                          >
-                            Playwright
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setScriptFramework("cypress")}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                              scriptFramework === "cypress"
-                                ? "bg-indigo-600 text-white"
-                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
-                            }`}
-                          >
-                            Cypress
-                          </button>
+                          {(["playwright", "cypress"] as const).map((fw) => (
+                            <button key={fw} type="button" onClick={() => setScriptFramework(fw)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition capitalize ${scriptFramework === fw ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"}`}
+                            >{fw}</button>
+                          ))}
                         </div>
                         <div className="flex items-center bg-white dark:bg-slate-700 rounded-md p-0.5 shadow-xs border border-slate-200 dark:border-slate-600">
-                          <button
-                            type="button"
-                            onClick={() => setScriptLanguage("typescript")}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                              scriptLanguage === "typescript"
-                                ? "bg-indigo-600 text-white"
-                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
-                            }`}
-                          >
-                            TS
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setScriptLanguage("javascript")}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                              scriptLanguage === "javascript"
-                                ? "bg-indigo-600 text-white"
-                                : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"
-                            }`}
-                          >
-                            JS
-                          </button>
+                          {(["typescript", "javascript"] as const).map((lang) => (
+                            <button key={lang} type="button" onClick={() => setScriptLanguage(lang)}
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${scriptLanguage === lang ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300 hover:text-indigo-600"}`}
+                            >{lang === "typescript" ? "TS" : "JS"}</button>
+                          ))}
                         </div>
                       </div>
 
-                      {/* Script Generation Button */}
                       <button
                         type="button"
                         onClick={() => handleScriptGeneration(scriptFramework)}
                         disabled={!!generatingScript}
                         className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1 font-medium border border-slate-200 dark:border-slate-700"
-                        title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
                       >
-                        {generatingScript === "playwright" ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
-                        )}
+                        {generatingScript === "playwright" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleScriptGeneration("gherkin")}
+                        disabled={!!generatingScript || !!gherkinContent}
+                        className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1 border border-slate-200 dark:border-slate-700 disabled:opacity-50"
+                      >
+                        {generatingScript === "gherkin" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ Gherkin (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
                       </button>
 
                       {playwrightScripts && (
                         <button
                           type="button"
                           onClick={() => { setWorkspaceTab("playwright"); setIsFullModalOpen(true); }}
-                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1"
-                          title="View scripts in Full Width Popup"
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1 font-medium"
+                          title="View scripts in full popup"
                         >
-                          <Maximize2 className="w-3 h-3" /> Scripts ({playwrightScripts.length})
+                          <Maximize2 className="w-3 h-3" />
+                          <span>View Scripts ({playwrightScripts.length})</span>
                         </button>
                       )}
 
-                      {!gherkinContent ? (
-                        <button
-                          type="button"
-                          onClick={() => handleScriptGeneration("gherkin")}
-                          disabled={!!generatingScript}
-                          className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1"
-                          title={selectedCount > 0 ? `Generate Gherkin for ${selectedCount} selected test cases` : "Generate Gherkin for all test cases"}
-                        >
-                          {generatingScript === "gherkin" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ Gherkin (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
-                        </button>
-                      ) : (
+                      {gherkinContent && (
                         <button
                           type="button"
                           onClick={() => { setWorkspaceTab("gherkin"); setIsFullModalOpen(true); }}
-                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1"
-                          title="View Gherkin feature in Full Width Popup"
+                          className="text-xs px-2.5 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition flex items-center gap-1 font-medium"
+                          title="View Gherkin in full popup"
                         >
-                          <Maximize2 className="w-3 h-3" /> Gherkin
+                          <Maximize2 className="w-3 h-3" />
+                          <span>View Gherkin</span>
                         </button>
                       )}
                     </div>
                   )}
 
-                  <span className="text-[9px] text-slate-400 block">{msg.timestamp}</span>
-                </div>
-              </div>
-            ))}
-            <div ref={chatEndRef} />
-          </div>
+                  {/* Bottom row: Timestamp + Hover Action Bar (Matching Image #9) */}
+                  <div className={`flex items-center gap-2 mt-1 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <span className="text-[9px] text-slate-400 block">{msg.timestamp}</span>
 
-        {/* Artifact Workspace — docked above composer, so the input stays pinned at the bottom */}
-        {activeResult && (
-          <div className={`shrink-0 ${isDockCollapsed ? "h-auto" : "max-h-[45vh]"} min-h-0 border-t border-slate-200 dark:border-slate-700 bg-slate-50/40 dark:bg-slate-900/40 flex flex-col overflow-hidden transition-all duration-200`}>
-            {/* Repair Proposal Notification Banner */}
-            {activeSession?.artifacts?.repair && (
-              <div className="flex items-center justify-between px-4 py-2 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-800 text-xs shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
-                  <span className="font-semibold text-amber-900 dark:text-amber-200 shrink-0">
-                    Repair Proposal Ready ({Math.round((activeSession.artifacts.repair.confidence || 0.85) * 100)}% Confidence)
-                  </span>
-                  <span className="text-amber-700 dark:text-amber-300 text-[11px] truncate max-w-sm hidden sm:inline">
-                    {activeSession.artifacts.repair.rationale}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setConfirmation("repair")}
-                  className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-medium text-xs transition shadow-sm shrink-0"
-                >
-                  Review Diff & Apply Fix
-                </button>
-              </div>
-            )}
-
-            {/* Toolbar: tabs + framework/language controls + full width + copy/download + collapse toggle */}
-            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 shrink-0 gap-2">
-              <div className="flex items-center gap-2 overflow-x-auto min-w-0">
-                <TabBtn active={workspaceTab === "cases"} onClick={() => setWorkspaceTab("cases")}>
-                  Test Cases (.xlsx)
-                </TabBtn>
-                {playwrightScripts && (
-                  <TabBtn active={workspaceTab === "playwright"} onClick={() => setWorkspaceTab("playwright")}>
-                    {scriptFramework === "cypress" ? "Cypress Script" : "Playwright .spec.ts"} ({playwrightScripts.length})
-                  </TabBtn>
-                )}
-                {gherkinContent && (
-                  <TabBtn active={workspaceTab === "gherkin"} onClick={() => setWorkspaceTab("gherkin")}>
-                    Gherkin .feature
-                  </TabBtn>
-                )}
-
-                {/* Framework & Language Controls */}
-                <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 dark:bg-slate-800 rounded-lg text-xs ml-1 shrink-0">
-                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
-                    <button
-                      type="button"
-                      onClick={() => setScriptFramework("playwright")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptFramework === "playwright" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
+                    {/* Action Bar (ThumbsUp, ThumbsDown, Copy, MoreHorizontal) */}
+                    <div
+                      className={`relative flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-xs backdrop-blur-xs transition-all duration-200 ${
+                        activeMenuMsgId === msg.id || (messageFeedback[msg.id] || msg.feedback)
+                          ? "opacity-100 translate-y-0"
+                          : "opacity-0 group-hover:opacity-100 translate-y-0.5 group-hover:translate-y-0"
                       }`}
                     >
-                      Playwright
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScriptFramework("cypress")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptFramework === "cypress" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      Cypress
-                    </button>
+                      {msg.role === "assistant" && (
+                        <>
+                          {/* 1. Thumbs Up */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeedback(msg.id, "like")}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              (messageFeedback[msg.id] || msg.feedback) === "like"
+                                ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60"
+                                : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                            }`}
+                            title="Helpful response"
+                          >
+                            <ThumbsUp
+                              className={`w-3.5 h-3.5 ${
+                                (messageFeedback[msg.id] || msg.feedback) === "like" ? "fill-current" : ""
+                              }`}
+                            />
+                          </button>
+
+                          {/* 2. Thumbs Down */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeedback(msg.id, "dislike")}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              (messageFeedback[msg.id] || msg.feedback) === "dislike"
+                                ? "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60"
+                                : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                            }`}
+                            title="Needs improvement"
+                          >
+                            <ThumbsDown
+                              className={`w-3.5 h-3.5 ${
+                                (messageFeedback[msg.id] || msg.feedback) === "dislike" ? "fill-current" : ""
+                              }`}
+                            />
+                          </button>
+                        </>
+                      )}
+
+                      {/* 3. Copy Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleCopyMessage(msg)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer"
+                        title="Copy message text"
+                      >
+                        {copiedMsgId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
+                      {/* 4. More Options (...) */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
+                          className={`p-1 rounded-md transition cursor-pointer ${
+                            activeMenuMsgId === msg.id
+                              ? "bg-slate-200 dark:bg-slate-700 text-slate-800 dark:text-slate-100"
+                              : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                          }`}
+                          title="More options"
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {activeMenuMsgId === msg.id && (
+                          <div
+                            ref={menuRef}
+                            className={`absolute bottom-full mb-1.5 z-40 w-44 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl py-1 text-xs animate-[fadeIn_0.15s_ease-out] ${
+                              msg.role === "user" ? "right-0" : "left-0"
+                            }`}
+                          >
+                            {msg.role === "assistant" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuMsgId(null);
+                                  handleRetryAgent(msg, idx);
+                                }}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Regenerate Response</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuMsgId(null);
+                                  setInputText(msg.content);
+                                  if (textareaRef.current) textareaRef.current.focus();
+                                  toast("Prompt loaded into composer", { icon: "✏️" });
+                                }}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                              >
+                                <Edit2 className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Edit Prompt</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuMsgId(null);
+                                handleCopyMessage(msg, true);
+                              }}
+                              className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Copy as Markdown</span>
+                            </button>
+
+                            {msg.result && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuMsgId(null);
+                                  if (msg.result) setActiveResult(msg.result);
+                                  setWorkspaceTab("cases");
+                                  setIsFullModalOpen(true);
+                                }}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                              >
+                                <Maximize2 className="w-3.5 h-3.5 text-slate-400" />
+                                <span>View Full Spreadsheet</span>
+                              </button>
+                            )}
+
+                            <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuMsgId(null);
+                                handleDeleteMessage(msg.id);
+                              }}
+                              className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                              <span>Delete Message</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
-                    <button
-                      type="button"
-                      onClick={() => setScriptLanguage("typescript")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptLanguage === "typescript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      TS
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScriptLanguage("javascript")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptLanguage === "javascript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      JS
-                    </button>
-                  </div>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleScriptGeneration(scriptFramework)}
-                  disabled={!!generatingScript}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition shadow-xs shrink-0"
-                  title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
-                >
-                  {generatingScript === "playwright" ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
-                  )}
-                </button>
               </div>
+            ))
+          )}
+          <div ref={chatEndRef} />
+        </div>
 
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsFullModalOpen(true)}
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition shadow-sm"
-                  title="Open Full Width Popup"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>Full Width</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopyAll}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-600 hover:bg-slate-100 transition shadow-sm"
-                  title="Copy all files"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  Copy All
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadAll}
-                  className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition"
-                  title="Download all files"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Download All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsDockCollapsed((c) => !c)}
-                  className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                  title={isDockCollapsed ? "Expand docked panel" : "Collapse docked panel"}
-                >
-                  {isDockCollapsed ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {!isDockCollapsed && (
-              <div className="flex-1 overflow-auto min-h-0">
-                {workspaceTab === "cases" && (
-                  <TestCaseTable
-                    markdown={activeResult.test_case_table || ""}
-                    testCases={activeSession?.artifacts?.cases || activeResult.test_cases}
-                    scripts={(activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult.scripts}
-                    selectedIds={activeSession?.artifacts?.selectedIds || []}
-                    runStates={activeSession?.artifacts?.runStates || {}}
-                    onCasesChange={(cases) => updateArtifacts({ cases: cases as UnifiedQaArtifacts["cases"] })}
-                    onSelectionChange={(selectedIds) => updateArtifacts({ selectedIds })}
-                    onRunStatesChange={(runStates) => updateArtifacts({ runStates })}
-                    onExpand={() => setIsFullModalOpen(true)}
-                  />
-                )}
-                {workspaceTab === "playwright" && playwrightScripts && (
-                  <ScriptViewer scripts={playwrightScripts} baseUrl={activeResult.url} />
-                )}
-                {workspaceTab === "gherkin" && gherkinContent && (
-                  <GherkinViewer content={gherkinContent} />
-                )}
-              </div>
-            )}
-          </div>
-        )}
-
-          {/* Input Dock — always pinned at the bottom */}
-          <div className="shrink-0 p-2.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
-            {uploadedFile && (
-              <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-white dark:bg-slate-800 rounded border border-slate-200 text-xs">
-                <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <span className="truncate flex-1 text-[11px]">{uploadedFile.name}</span>
-                <button type="button" onClick={() => setUploadedFile(null)} className="text-slate-400 hover:text-red-400">
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-
-            <form onSubmit={handleSend} className="flex items-center gap-1.5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-1.5 shadow-sm">
-              <label
-                className={`p-1.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 cursor-pointer transition shrink-0 ${busy ? "opacity-40 cursor-not-allowed" : ""}`}
-                title="Attach PDF or image"
-              >
-                {parsingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFilePick} disabled={busy || parsingDoc} />
-              </label>
-
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={inputText}
-                onChange={(e) => setInputText(e.target.value)}
-                onPaste={handlePaste}
-                onKeyDown={(e) => {
-                  if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); handleSend(); }
-                }}
-                placeholder="Ask AI or give target URL..."
-                disabled={busy}
-                className="flex-1 bg-transparent border-none text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-0 resize-none max-h-32 py-1 px-0.5"
-              />
-
-              <button
-                type="submit"
-                disabled={busy || (!inputText.trim() && !uploadedFile)}
-                className="p-1.5 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition shrink-0"
-                title="Send"
-              >
-                {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+        {/* Input Dock: pinned at the bottom */}
+        <div className="shrink-0 p-2.5 border-t border-slate-100 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50">
+          {uploadedFile && (
+            <div className="flex items-center gap-1.5 mb-2 px-2 py-1 bg-white dark:bg-slate-800 rounded border border-slate-200 text-xs">
+              <FileText className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <span className="truncate flex-1 text-[11px]">{uploadedFile.name}</span>
+              <button type="button" onClick={() => setUploadedFile(null)} className="text-slate-400 hover:text-red-400">
+                <X className="w-3 h-3" />
               </button>
-            </form>
-          </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSend} className="flex items-center gap-1.5 bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 p-1.5 shadow-sm">
+            <label
+              className={`p-1.5 rounded-full text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-slate-700 cursor-pointer transition shrink-0 ${busy ? "opacity-40 cursor-not-allowed" : ""}`}
+              title="Attach PDF or image"
+            >
+              {parsingDoc ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              <input ref={fileInputRef} type="file" accept=".pdf,image/*" className="hidden" onChange={handleFilePick} disabled={busy || parsingDoc} />
+            </label>
+
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onPaste={handlePaste}
+              onKeyDown={(e) => {
+                if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && !e.shiftKey)) { e.preventDefault(); handleSend(); }
+              }}
+              placeholder="Ask AI or give target URL..."
+              disabled={busy}
+              className="flex-1 bg-transparent border-none text-xs text-slate-800 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:ring-0 resize-none max-h-32 py-1 px-0.5"
+            />
+
+            <button
+              type="submit"
+              disabled={busy || (!inputText.trim() && !uploadedFile)}
+              className="p-1.5 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition shrink-0"
+              title="Send"
+            >
+              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+            </button>
+          </form>
+        </div>
       </div>
+
 
       {confirmation === "repair" && activeSession?.artifacts?.repair && (
         (() => {
@@ -1773,218 +1925,30 @@ export default function GenerateChatPage({ aiProvider, aiModel }: Props) {
         </div>
       )}
 
-      {/* Full Width Result Modal / Popup */}
-      {isFullModalOpen && activeResult && (
-        <div
-          className="fixed inset-0 z-[105] flex items-center justify-center bg-slate-950/70 backdrop-blur-sm p-2 sm:p-4 md:p-6 animate-[fadeIn_0.15s_ease-out]"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setIsFullModalOpen(false);
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="full-result-title"
-        >
-          <div className="relative w-full max-w-[98vw] h-[94vh] bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex flex-wrap items-center justify-between px-4 sm:px-6 py-3 border-b border-slate-200 dark:border-slate-800 bg-slate-50/90 dark:bg-slate-900/90 shrink-0 gap-3">
-              {/* Title & Info */}
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 shrink-0">
-                  <Sparkles className="w-5 h-5" />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 id="full-result-title" className="text-base font-bold text-slate-800 dark:text-slate-100 truncate">
-                      Test Generation Results
-                    </h2>
-                    {(activeSession?.artifacts?.cases?.length || activeResult.test_cases?.length) ? (
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
-                        {activeSession?.artifacts?.cases?.length || activeResult.test_cases?.length} cases
-                      </span>
-                    ) : null}
-                  </div>
-                  {activeResult.page_title && (
-                    <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-xl">
-                      {activeResult.page_title}
-                    </p>
-                  )}
-                </div>
-              </div>
-
-              {/* Center Tabs */}
-              <div className="flex items-center gap-1.5 p-1 bg-slate-200/70 dark:bg-slate-800 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setWorkspaceTab("cases")}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-                    workspaceTab === "cases"
-                      ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                  }`}
-                >
-                  Test Cases (.xlsx)
-                </button>
-                {playwrightScripts && (
-                  <button
-                    type="button"
-                    onClick={() => setWorkspaceTab("playwright")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-                      workspaceTab === "playwright"
-                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Playwright .spec.ts ({playwrightScripts.length})
-                  </button>
-                )}
-                {gherkinContent && (
-                  <button
-                    type="button"
-                    onClick={() => setWorkspaceTab("gherkin")}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition ${
-                      workspaceTab === "gherkin"
-                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-                    }`}
-                  >
-                    Gherkin .feature
-                  </button>
-                )}
-              </div>
-
-              {/* Right Actions & Close */}
-              <div className="flex items-center gap-2 shrink-0">
-                {/* Framework & Language Controls */}
-                <div className="flex items-center gap-1 p-0.5 bg-slate-200/70 dark:bg-slate-800 rounded-lg text-xs">
-                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
-                    <button
-                      type="button"
-                      onClick={() => setScriptFramework("playwright")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptFramework === "playwright" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      Playwright
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScriptFramework("cypress")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptFramework === "cypress" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      Cypress
-                    </button>
-                  </div>
-                  <div className="flex items-center bg-white dark:bg-slate-700 rounded p-0.5 border border-slate-200 dark:border-slate-600">
-                    <button
-                      type="button"
-                      onClick={() => setScriptLanguage("typescript")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptLanguage === "typescript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      TS
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setScriptLanguage("javascript")}
-                      className={`px-1.5 py-0.5 rounded text-[10px] font-semibold transition ${
-                        scriptLanguage === "javascript" ? "bg-indigo-600 text-white" : "text-slate-600 dark:text-slate-300"
-                      }`}
-                    >
-                      JS
-                    </button>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => handleScriptGeneration(scriptFramework)}
-                  disabled={!!generatingScript}
-                  className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1 font-medium"
-                  title={selectedCount > 0 ? `Generate ${scriptFramework} for ${selectedCount} selected test cases` : `Generate ${scriptFramework} for all test cases`}
-                >
-                  {generatingScript === "playwright" ? (
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                  ) : (
-                    `+ ${scriptFramework === "cypress" ? "Cypress" : "Playwright"} (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`
-                  )}
-                </button>
-
-                {!gherkinContent && (
-                  <button
-                    type="button"
-                    onClick={() => handleScriptGeneration("gherkin")}
-                    disabled={!!generatingScript}
-                    className="text-xs px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 transition flex items-center gap-1"
-                    title={selectedCount > 0 ? `Generate Gherkin for ${selectedCount} selected test cases` : "Generate Gherkin for all test cases"}
-                  >
-                    {generatingScript === "gherkin" ? <Loader2 className="w-3 h-3 animate-spin" /> : `+ Gherkin (${selectedCount > 0 ? `${selectedCount} selected` : "All"})`}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={handleCopyAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700 transition shadow-sm"
-                  title="Copy all files to clipboard"
-                >
-                  <Copy className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Copy All</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDownloadAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition shadow-sm"
-                  title="Download all files as ZIP"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span className="hidden sm:inline">Download All</span>
-                </button>
-
-                <div className="w-px h-6 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-                <button
-                  type="button"
-                  onClick={() => setIsFullModalOpen(false)}
-                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-                  title="Close (Esc)"
-                  aria-label="Close"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-
-            {/* Modal Body */}
-            <div className="flex-1 overflow-auto min-h-0 bg-slate-50/50 dark:bg-slate-950/50 p-3 sm:p-5">
-              {workspaceTab === "cases" && (
-                <TestCaseTable
-                  markdown={activeResult.test_case_table || ""}
-                  testCases={activeSession?.artifacts?.cases || activeResult.test_cases}
-                  scripts={(activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult.scripts}
-                  selectedIds={activeSession?.artifacts?.selectedIds || []}
-                  runStates={activeSession?.artifacts?.runStates || {}}
-                  onCasesChange={(cases) => updateArtifacts({ cases: cases as UnifiedQaArtifacts["cases"] })}
-                  onSelectionChange={(selectedIds) => updateArtifacts({ selectedIds })}
-                  onRunStatesChange={(runStates) => updateArtifacts({ runStates })}
-                />
-              )}
-              {workspaceTab === "playwright" && playwrightScripts && (
-                <div className="card dark:bg-slate-900 dark:border-slate-800 h-full overflow-hidden">
-                  <ScriptViewer scripts={playwrightScripts} baseUrl={activeResult.url} />
-                </div>
-              )}
-              {workspaceTab === "gherkin" && gherkinContent && (
-                <div className="card dark:bg-slate-900 dark:border-slate-800 h-full overflow-hidden">
-                  <GherkinViewer content={gherkinContent} />
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* ── 100% Fullscreen Google Sheets Spreadsheet Modal (Matching Image #6) ── */}
+      <SpreadsheetModal
+        isOpen={isFullModalOpen}
+        onClose={() => {
+          setIsFullModalOpen(false);
+          setSelectedModalResult(null);
+        }}
+        title={(selectedModalResult || activeResult)?.page_title || (selectedModalResult || activeResult)?.url || "Saucedemo"}
+        testCases={
+          selectedModalResult?.test_cases && selectedModalResult.test_cases.length > 0
+            ? selectedModalResult.test_cases
+            : (activeSession?.artifacts?.cases && activeSession.artifacts.cases.length > 0)
+            ? activeSession.artifacts.cases
+            : (activeResult?.test_cases || [])
+        }
+        scripts={
+          selectedModalResult?.scripts && selectedModalResult.scripts.length > 0
+            ? selectedModalResult.scripts
+            : (activeSession?.artifacts?.playwright as ScriptFile[]) || activeResult?.scripts || playwrightScripts || []
+        }
+        gherkinContent={gherkinContent || ""}
+        baseUrl={(selectedModalResult || activeResult)?.url || ""}
+        initialTab={workspaceTab === "playwright" ? "playwright" : workspaceTab === "gherkin" ? "gherkin" : "cases"}
+      />
     </div>
   );
 }

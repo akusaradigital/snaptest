@@ -15,7 +15,8 @@ import {
   Search,
   Table,
   Code,
-  FileSpreadsheet
+  FileSpreadsheet,
+  PanelLeft
 } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
 import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
@@ -47,6 +48,7 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
   const [data, setData] = useState<any[] | null>(null);
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<"table" | "json">("table");
+  const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
 
   // Session state
@@ -366,7 +368,7 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
       });
 
       const resData = await res.json();
-      if (!res.ok) throw new Error(resData.detail || 'Failed to generate data');
+      if (!res.ok) throw new Error(resData.detail || resData.error || 'Failed to generate data');
 
       setData(resData.data);
       toast.success('Test Data generated successfully!');
@@ -432,292 +434,231 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
     : [];
 
   return (
-    <div className="flex h-[calc(100vh-140px)] gap-4 max-w-6xl mx-auto w-full">
-      {/* ── LEFT: Configuration panel ── */}
-      <div className="w-[360px] shrink-0 h-full flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden relative">
-        <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800 shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="w-6 h-6 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
-              <Database className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-            </div>
-            <span className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">Test Data Generator</span>
-          </div>
+    <div className="flex h-full w-full overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm font-sans">
+      {/* ── Sessions / History Sidebar (Collapsible) ── */}
+      <div className={`transition-all duration-300 ease-in-out border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col shrink-0 ${
+        showLeftPanel ? "w-64" : "w-0 overflow-hidden border-r-0"
+      }`}>
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            Data Sets ({sessions.length})
+          </span>
+          <button
+            type="button"
+            onClick={handleNewSession}
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            title="New Data Set"
+          >
+            <PlusCircle className="w-4 h-4" />
+          </button>
+        </div>
 
-          <div className="flex items-center gap-1.5 shrink-0" ref={historyRef}>
+        {/* Search */}
+        {sessions.length > 0 && (
+          <div className="p-2 border-b border-slate-200/60 dark:border-slate-800/60 shrink-0">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={sessionSearch}
+                onChange={e => setSessionSearch(e.target.value)}
+                placeholder="Search datasets..."
+                className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Sessions list */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 scrollbar-thin">
+          {filteredSessions.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">No saved history yet.</p>
+          ) : (
+            filteredSessions.map(s => {
+              const isActive = s.id === activeSessionId;
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => renamingId !== s.id && selectSession(s)}
+                  className={`group flex items-center gap-1.5 px-2.5 py-2 rounded-xl cursor-pointer text-xs transition ${
+                    isActive
+                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold border border-indigo-200/60 dark:border-indigo-800/60"
+                      : "hover:bg-slate-100/70 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300"
+                  }`}
+                >
+                  {renamingId === s.id ? (
+                    <div className="flex items-center gap-1 flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') commitRename(s.id);
+                          if (e.key === 'Escape') setRenamingId(null);
+                        }}
+                        className="flex-1 min-w-0 px-1.5 py-0.5 rounded border border-indigo-500 bg-white dark:bg-slate-900 text-xs text-slate-800 dark:text-slate-100 focus:outline-none"
+                        autoFocus
+                      />
+                      <button onClick={() => commitRename(s.id)} className="p-0.5 text-emerald-600 hover:text-emerald-700"><Check className="w-3.5 h-3.5" /></button>
+                      <button onClick={() => setRenamingId(null)} className="p-0.5 text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex-1 min-w-0">
+                        <p className="truncate font-medium">{s.title}</p>
+                        <p className="text-[10px] text-slate-400">
+                          {new Date(s.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition shrink-0" onClick={e => e.stopPropagation()}>
+                        {deleteConfirmId === s.id ? (
+                          <>
+                            <button onClick={() => handleDeleteSession(s.id)} className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded"><Check className="w-3 h-3" /></button>
+                            <button onClick={() => setDeleteConfirmId(null)} className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"><X className="w-3 h-3" /></button>
+                          </>
+                        ) : (
+                          <>
+                            <button onClick={() => startRename(s)} className="p-1 hover:text-indigo-600 text-slate-400 rounded transition" title="Rename"><Pencil className="w-3 h-3" /></button>
+                            <button onClick={() => setDeleteConfirmId(s.id)} className="p-1 hover:text-red-500 text-slate-400 rounded transition" title="Delete"><Trash2 className="w-3 h-3" /></button>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── Main Data Generator Workspace ── */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top bar with Toggle History & Actions */}
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
-              onClick={() => setHistoryOpen(o => !o)}
-              className={`px-2 py-1 rounded-md text-xs font-medium flex items-center gap-1.5 border transition ${
-                historyOpen
-                  ? "bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400"
-                  : "border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-              }`}
-              title="View history"
+              onClick={() => setShowLeftPanel(!showLeftPanel)}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition shrink-0"
+              title={showLeftPanel ? "Hide History" : "Show History"}
             >
-              <Clock className="w-3.5 h-3.5" />
-              <span>History</span>
-              {sessions.length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 font-semibold">
-                  {sessions.length}
-                </span>
-              )}
+              <PanelLeft className="w-4 h-4" />
             </button>
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center shrink-0">
+              <Database className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+            </div>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-sm">
+              {activeSession ? activeSession.title : "New Data Set"}
+            </span>
+          </div>
 
+          <div className="flex items-center gap-2">
+            {data && (
+              <>
+                <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("table")}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
+                      viewMode === "table"
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                    title="Table View"
+                  >
+                    <Table className="w-3.5 h-3.5" />
+                    <span>Table</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("json")}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
+                      viewMode === "json"
+                        ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
+                        : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                    }`}
+                    title="JSON View"
+                  >
+                    <Code className="w-3.5 h-3.5" />
+                    <span>JSON</span>
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>{copied ? "Copied!" : "Copy"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadCsv}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSheetsModalOpen(true)}
+                  className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition font-medium"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span>Spreadsheet</span>
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={handleNewSession}
-              className="p-1 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition"
-              title="New Data Set"
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700"
             >
-              <PlusCircle className="w-3.5 h-3.5" />
+              <PlusCircle className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>New Data Set</span>
             </button>
-
-            {/* History Dropdown Popover */}
-            {historyOpen && (
-              <div className="absolute right-4 top-12 w-80 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl p-3 z-30 flex flex-col max-h-[460px]">
-                <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
-                  <span className="text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                    Saved Generations ({sessions.length})
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleNewSession}
-                    className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium"
-                  >
-                    <PlusCircle className="w-3 h-3" />
-                    <span>New Data Set</span>
-                  </button>
-                </div>
-
-                {sessions.length > 0 && (
-                  <div className="relative mb-2">
-                    <input
-                      type="text"
-                      value={sessionSearch}
-                      onChange={e => setSessionSearch(e.target.value)}
-                      placeholder="Search datasets..."
-                      className="w-full text-xs pl-7 pr-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800 dark:text-slate-100 placeholder-slate-400"
-                    />
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2 top-2" />
-                  </div>
-                )}
-
-                <div className="flex-1 overflow-y-auto space-y-1 pr-1 min-h-[100px]">
-                  {filteredSessions.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-slate-400">
-                      {sessions.length === 0 ? "No saved generations yet" : "No matching datasets"}
-                    </div>
-                  ) : (
-                    filteredSessions.map(s => {
-                      const isActive = s.id === activeSessionId;
-                      return (
-                        <div
-                          key={s.id}
-                          className={`group relative flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer border ${
-                            isActive
-                              ? "bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800"
-                              : "hover:bg-slate-50 dark:hover:bg-slate-800/50 border-transparent"
-                          }`}
-                          onClick={() => selectSession(s)}
-                        >
-                          {renamingId === s.id ? (
-                            <div className="flex items-center gap-1 w-full" onClick={e => e.stopPropagation()}>
-                              <input
-                                type="text"
-                                autoFocus
-                                value={renameValue}
-                                onChange={e => setRenameValue(e.target.value)}
-                                onKeyDown={e => {
-                                  if (e.key === 'Enter') commitRename(s.id);
-                                  if (e.key === 'Escape') setRenamingId(null);
-                                }}
-                                className="flex-1 text-xs px-2 py-1 rounded border border-indigo-400 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => commitRename(s.id)}
-                                className="p-1 hover:text-emerald-600 text-slate-400"
-                                title="Save"
-                              >
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setRenamingId(null)}
-                                className="p-1 hover:text-red-500 text-slate-400"
-                                title="Cancel"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="flex-1 min-w-0 pr-2">
-                                <div className="flex items-center gap-1.5">
-                                  <span className={`font-medium truncate ${isActive ? "text-indigo-600 dark:text-indigo-400" : "text-slate-700 dark:text-slate-200"}`}>
-                                    {s.title}
-                                  </span>
-                                  {s.data && s.data.length > 0 && (
-                                    <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 shrink-0">
-                                      {s.data.length}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="text-[10px] text-slate-400 block mt-0.5">
-                                  {new Date(s.updatedAt).toLocaleDateString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-1 shrink-0" onClick={e => e.stopPropagation()}>
-                                {deleteConfirmId === s.id ? (
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteSession(s.id)}
-                                      className="p-1 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded"
-                                      title="Confirm delete"
-                                    >
-                                      <Check className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setDeleteConfirmId(null)}
-                                      className="p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded"
-                                      title="Cancel"
-                                    >
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => startRename(s)}
-                                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-indigo-600 text-slate-400 transition"
-                                      title="Rename"
-                                    >
-                                      <Pencil className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setDeleteConfirmId(s.id)}
-                                      className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition"
-                                      title="Delete"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </>
-                                )}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 
-        <form onSubmit={handleGenerate} className="flex-1 flex flex-col min-h-0 p-4">
-          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5 block">Fields / Schema</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="Describe fields or paste JSON schema (e.g. email, age, role)..."
-            disabled={loading}
-            className="flex-1 min-h-[120px] w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 resize-none p-2.5"
-          />
-          <button type="button" onClick={() => setPrompt(EXAMPLE_PROMPT)} disabled={loading} className="self-start mt-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition">
-            Load example
-          </button>
-
-          <button type="submit" disabled={loading || !prompt.trim()} className="mt-4 w-full py-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition flex items-center justify-center gap-2 text-sm font-semibold">
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
-            Generate Test Data
-          </button>
-          <p className="text-center text-[10px] text-slate-400 mt-2">AI Agent can make mistakes. Check important info.</p>
-        </form>
-      </div>
-
-      {/* ── RIGHT: Results panel ── */}
-      <div className="flex-1 min-w-0 h-full flex flex-col rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 overflow-hidden">
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 flex flex-col">
+        {/* ── Scrollable Workspace: Centered Empty State when New, or Data Table/JSON when Result ── */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-slate-500 mb-4">
-              <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
-              <span>AI Agent is constructing mock &amp; boundary test data...</span>
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                <span>AI Agent is constructing mock &amp; boundary test data...</span>
+              </div>
             </div>
           )}
 
           {!data && !loading && (
-            <div className="h-full flex flex-col items-center justify-center text-center max-w-md mx-auto my-auto">
-              <Database className="w-8 h-8 text-indigo-300 dark:text-indigo-700 mb-4" />
-              <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">Start Data Generation</h3>
-              <p className="text-xs text-slate-500 mb-4">Paste a JSON schema, API payload, or describe fields (e.g., email, age, password) to generate mock, boundary, and negative payloads.</p>
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
+              <div className="max-w-md flex flex-col items-center">
+                <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center mb-3 text-indigo-600 dark:text-indigo-400">
+                  <Database className="w-6 h-6" />
+                </div>
+                <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-1.5">
+                  Test Data Generator Workspace
+                </h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                  Describe fields or paste a JSON schema (e.g. email, age, role, transactions) below to synthesize comprehensive mock, edge-case, and boundary test datasets.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setPrompt(EXAMPLE_PROMPT)}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 transition shadow-xs"
+                >
+                  Example: User Profiles with Auth &amp; Roles
+                </button>
+              </div>
             </div>
           )}
 
           {data && (
             <div className="h-full flex flex-col animate-[fadeIn_0.3s_ease-out]">
-              <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-3 mb-3 shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">
-                    {activeSession?.title || "Generated Mock Data"}
-                  </span>
-                  <span className="text-xs text-slate-400 shrink-0">· {data.length} records</span>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  {/* Table vs JSON toggle */}
-                  <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("table")}
-                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
-                        viewMode === "table"
-                          ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                      }`}
-                      title="Table View"
-                    >
-                      <Table className="w-3.5 h-3.5" />
-                      <span>Table</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setViewMode("json")}
-                      className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition ${
-                        viewMode === "json"
-                          ? "bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-300 shadow-sm"
-                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                      }`}
-                      title="JSON View"
-                    >
-                      <Code className="w-3.5 h-3.5" />
-                      <span>JSON</span>
-                    </button>
-                  </div>
-
-                  <button onClick={copyToClipboard} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center">
-                    <Copy className="w-3.5 h-3.5" /> {copied ? "Copied!" : "Copy JSON"}
-                  </button>
-                  <button onClick={downloadCsv} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center">
-                    <Download className="w-3.5 h-3.5" /> CSV
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSheetsModalOpen(true)}
-                    className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center bg-emerald-600 hover:bg-emerald-700 text-white"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" /> Spreadsheet
-                  </button>
-                </div>
-              </div>
-
               {viewMode === "table" && dataHeaders.length > 0 ? (
                 <div className="flex-1 min-h-0 overflow-auto rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
                   <table className="w-full text-left text-xs border-collapse">
@@ -756,6 +697,48 @@ export default function DataGenPage({ aiProvider, aiModel }: DataGenPageProps) {
               )}
             </div>
           )}
+        </div>
+
+        {/* ── Bottom Docked Input Composer ── */}
+        <div className="shrink-0 px-3 pb-3 pt-2">
+          <div className="bg-white dark:bg-slate-800/95 backdrop-blur-md rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 shadow-sm">
+            <form onSubmit={handleGenerate} className="flex flex-col gap-2">
+              <textarea
+                rows={2}
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.key === "Enter" && (e.metaKey || e.ctrlKey)) || (e.key === "Enter" && !e.shiftKey)) {
+                    e.preventDefault();
+                    handleGenerate(e);
+                  }
+                }}
+                placeholder="Describe fields or paste JSON schema (e.g. email, age, role, address)..."
+                disabled={loading}
+                className="w-full text-xs leading-relaxed px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none max-h-36"
+              />
+
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setPrompt(EXAMPLE_PROMPT)}
+                  disabled={loading}
+                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                >
+                  Load example
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading || !prompt.trim()}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center gap-1.5 text-xs font-semibold shadow-xs"
+                >
+                  {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                  <span>{loading ? "Generating..." : "Generate Test Data"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
 

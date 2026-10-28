@@ -51,7 +51,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ detail: 'Message content or screenshot is required' }, { status: 400 });
     }
 
-    // Cheap heuristic (no LLM call) to pick the language for hardcoded fallback strings —
+    // Cheap heuristic (no LLM call) to pick the language for hardcoded fallback strings:
     // matches common Indonesian function/stopwords not used in English QA chat.
     const looksIndonesian = (text: string) => /\b(yang|dengan|tidak|adalah|saya|kami|bisa|akan|dari|pada|nya|tolong|mohon|gagal|rusak|error nya)\b/i.test(text || '');
 
@@ -60,14 +60,14 @@ export async function POST(request: Request) {
       ? fields.filter((f: string) => (ALL_FIELDS as readonly string[]).includes(f)) as Field[]
       : Array.from(ALL_FIELDS);
 
-    // ponytail: skip the LLM round-trip entirely for bare greetings on the first turn —
+    // ponytail: skip the LLM round-trip entirely for bare greetings on the first turn:
     // this is the actual "hi feels slow" fix, no LLM call is faster than any amount of streaming.
     const GREETING_RE = /^(hi|hello|hey|halo|hai|p|pagi|test|tes|thanks|thank you|makasih|terima kasih)[.!?]*$/i;
     const ID_GREETING_RE = /^(halo|hai|pagi|tes|makasih|terima kasih)[.!?]*$/i;
     if (chatHistory.length === 1 && !lastMsg.image_base64 && GREETING_RE.test(lastMsg.content.trim())) {
       const greetingReply = ID_GREETING_RE.test(lastMsg.content.trim())
-        ? "Halo! Ceritakan bug, improvement, atau fitur yang ingin didokumentasikan — screenshot atau link Drive juga membantu."
-        : "Hi! Tell me about the bug, improvement, or feature you'd like to document — a screenshot or Drive link helps too.";
+        ? "Halo! Ceritakan bug, improvement, atau fitur yang ingin didokumentasikan. Screenshot atau link Drive juga membantu."
+        : "Hi! Tell me about the bug, improvement, or feature you'd like to document. A screenshot or Drive link helps too.";
       return NextResponse.json({
         has_ticket_data: false,
         chat_title: 'New Ticket Chat',
@@ -155,8 +155,8 @@ CONCISENESS & QUALITY RULES (apply to ALL ticket types, HIGHEST priority after u
   - issue_type: "Bug"
   - title: "[ModuleName] - [Specific concise issue summary]"
   - description: Problem summary, numbered steps to reproduce, and technical notes if relevant.
-  - expected_result: 1-2 sentences — the correct system behavior.
-  - actual_result: 1-2 sentences — the exact failure observed.
+  - expected_result: 1-2 sentences with the correct system behavior.
+  - actual_result: 1-2 sentences with the exact failure observed.
   - acceptance_criteria: 2-3 concrete verification items only.
   - evidence: Exact URL from input or screenshot note.
 
@@ -210,7 +210,7 @@ STRICT CONTEXT RULES:
   6. Hasil Aktual (actual_result):
      - Maksimal 1-2 kalimat: nyatakan kegagalan/error yang terjadi (misal: tombol tidak merespons, muncul toast error 500). JANGAN ulangi langkah-langkah dari deskripsi.
   7. Kriteria Penerimaan (acceptance_criteria):
-     - Buat TEPAT 2-3 checklist verifikasi konkret (Definition of Done). Setiap item harus unik, bernilai tinggi, dan testable — JANGAN buat 4-6 item yang redundan atau kriteria samar seperti "Sistem bekerja dengan baik".
+     - Buat TEPAT 2-3 checklist verifikasi konkret (Definition of Done). Setiap item harus unik, bernilai tinggi, dan testable. JANGAN buat 4-6 item yang redundan atau kriteria samar seperti "Sistem bekerja dengan baik".
 - DO NOT invent generic tools or fake placeholders (e.g. NEVER use "[Module Name]" or "[TBD]").
 - PRESERVE exact feature names, model names (e.g. "Google - Nano Banana Pro"), terms (e.g. "inpainting"), links, and error details provided by the user.
 - If any message contains a URL (e.g. BugSnap, Loom, Google Drive, screenshot link, or live site link), you MUST extract and put that EXACT URL under "evidence". NEVER leave "evidence" null, omitted, or placeholder when a URL is provided by the user.

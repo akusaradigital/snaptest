@@ -13,6 +13,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     const userId = session?.user?.email;
     if (!userId) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     if (!validId(params.id)) return NextResponse.json({ detail: 'Invalid session id' }, { status: 400 });
+    if (!process.env.DATABASE_URL?.trim()) return NextResponse.json({ detail: 'Session not found' }, { status: 404 });
 
     await ensureSchema();
     const sql = getDB();
@@ -51,6 +52,7 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
     const userId = session?.user?.email;
     if (!userId) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
     if (!validId(params.id)) return NextResponse.json({ detail: 'Invalid session id' }, { status: 400 });
+    if (!process.env.DATABASE_URL?.trim()) return NextResponse.json({ success: true });
 
     await ensureSchema();
     const sql = getDB();

@@ -1,5 +1,5 @@
 // Finds the end of the JSON object starting at `start` by tracking brace depth and
-// string state, instead of a naive lastIndexOf("}") — which grabs the wrong brace if
+// string state, instead of a naive lastIndexOf("}"), which grabs the wrong brace if
 // the model appends any trailing text (e.g. a conversational aside) after the object.
 function findMatchingBrace(text, start) {
   let depth = 0;

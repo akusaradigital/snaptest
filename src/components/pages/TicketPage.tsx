@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { get9RouterPublicConfig, getAiRequestPayload, getApiKey } from "@/lib/keys";
-import { getEffectiveAiRules, rememberAiRule } from "@/lib/aiMemory";
+import { getEffectiveAiRules, rememberAiRule, buildFeedbackDirectives } from "@/lib/aiMemory";
 import toast from "react-hot-toast";
 import TicketChatBubble from "@/components/TicketChatBubble";
 import {
@@ -23,6 +23,13 @@ import {
   FileSpreadsheet,
   Pin,
   Bookmark,
+  ThumbsUp,
+  ThumbsDown,
+  Copy,
+  MoreHorizontal,
+  Check,
+  FileText,
+  Pencil,
 } from "lucide-react";
 import SendToSheetsModal from "@/components/SendToSheetsModal";
 
@@ -40,6 +47,7 @@ export interface ChatMessage {
   image_base64?: string;
   ticket_result?: Record<string, any>;
   timestamp: string;
+  feedback?: "like" | "dislike" | null;
 }
 
 export interface ChatSession {
@@ -161,6 +169,89 @@ export default function TicketPage({ aiProvider, aiModel, onProviderChange }: Ti
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  const [messageFeedback, setMessageFeedback] = useState<Record<string, "like" | "dislike">>({});
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [activeMenuMsgId, setActiveMenuMsgId] = useState<string | null>(null);
+
+  // Close message options menu on click outside
+  useEffect(() => {
+    if (!activeMenuMsgId) return;
+    const onClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveMenuMsgId(null);
+      }
+    };
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, [activeMenuMsgId]);
+
+  const handleToggleFeedback = (msgId: string, type: "like" | "dislike") => {
+    const current = messageFeedback[msgId];
+    const next = current === type ? null : type;
+
+    setMessageFeedback((prev) => {
+      const updated = { ...prev };
+      if (next) {
+        updated[msgId] = next;
+      } else {
+        delete updated[msgId];
+      }
+      return updated;
+    });
+
+    if (activeSessionId) {
+      const nextSessions = sessions.map((s) => {
+        if (s.id !== activeSessionId) return s;
+        return {
+          ...s,
+          messages: s.messages.map((m) =>
+            m.id === msgId ? { ...m, feedback: next || undefined } : m
+          ),
+        };
+      });
+      setSessions(nextSessions);
+      const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
+      saveSessionsToStorage(nextSessions, updatedTarget);
+    }
+
+    if (next === "like") {
+      toast.success("Helpful response recorded! 👍 (AI will maintain this format)");
+    } else if (next === "dislike") {
+      toast("Marked as needs improvement 👎 (AI will refine future responses)", { icon: "👎" });
+    } else {
+      toast("Feedback removed", { icon: "↩️" });
+    }
+  };
+
+  const handleCopyMessage = (msg: ChatMessage, asMarkdown = false) => {
+    let text = msg.content || "";
+    if (msg.ticket_result) {
+      const t = msg.ticket_result;
+      if (asMarkdown || !text) {
+        text = `# [${(t.issue_type || "BUG").toUpperCase()}] ${t.title || ""}\n\n**Severity:** ${t.severity || "Medium"} | **Priority:** ${t.priority || "Medium"}\n\n### Description\n${t.description || ""}\n\n### Steps to Reproduce\n${(t.steps_to_reproduce || []).map((s: string, i: number) => `${i + 1}. ${s}`).join("\n")}\n\n### Expected Result\n${t.expected_result || ""}\n\n### Actual Result\n${t.actual_result || ""}`;
+      }
+    }
+    navigator.clipboard.writeText(text);
+    setCopiedMsgId(msg.id);
+    setTimeout(() => setCopiedMsgId(null), 2000);
+    toast.success(asMarkdown ? "Copied as Markdown!" : "Message copied to clipboard!");
+  };
+
+  const handleDeleteMessage = (msgId: string) => {
+    if (!activeSessionId) return;
+    const nextSessions = sessions.map((s) => {
+      if (s.id !== activeSessionId) return s;
+      return {
+        ...s,
+        messages: s.messages.filter((m) => m.id !== msgId),
+      };
+    });
+    const updatedTarget = nextSessions.find((s) => s.id === activeSessionId);
+    saveSessionsToStorage(nextSessions, updatedTarget);
+    toast.success("Message deleted");
+  };
 
   const adjustTextareaHeight = () => {
     const el = textareaRef.current;
@@ -911,7 +1002,8 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     currentSessionId: string,
     messagesForRequest: ChatMessage[],
     apiKey: string,
-    inheritedJiraInfo?: { jira_key?: string; jira_url?: string; jira_label?: string; scope_label?: string }
+    inheritedJiraInfo?: { jira_key?: string; jira_url?: string; jira_label?: string; scope_label?: string },
+    regenerationDirective?: string
   ) => {
     setIsLoading(true);
     try {
@@ -921,6 +1013,13 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         .pop();
 
       const formattedHistory = messagesForRequest.map((m, idx) => {
+        const fb = m.feedback || messageFeedback[m.id];
+        const fbTag = fb === "dislike"
+          ? "[FEEDBACK: User marked unsatisfactory 👎 - Avoid previous shortcomings]\n"
+          : fb === "like"
+          ? "[FEEDBACK: User approved 👍 - Maintain this format & quality]\n"
+          : "";
+
         if (m.role === "assistant" && m.ticket_result && idx === lastAssistantIdxWithTicket) {
           const t = m.ticket_result;
           const ticketSummary = [
@@ -935,19 +1034,26 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           ].filter(Boolean).join("\n");
           return {
             role: m.role,
-            content: m.content ? `${m.content}\n\n${ticketSummary}` : ticketSummary,
+            content: `${fbTag}${m.content ? `${m.content}\n\n${ticketSummary}` : ticketSummary}`,
             image_base64: m.image_base64,
           };
         }
         const isLatestUserTurn = m.role === "user" && idx === messagesForRequest.length - 1;
         return {
           role: m.role,
-          content: m.content,
+          content: fbTag ? `${fbTag}${m.content || ""}` : m.content,
           image_base64: isLatestUserTurn ? m.image_base64 : undefined,
         };
       });
 
       let customRules = getEffectiveAiRules("ticket");
+      const feedbackDirectives = buildFeedbackDirectives(messagesForRequest);
+      if (feedbackDirectives) {
+        customRules = `${customRules}\n\n${feedbackDirectives}`.trim();
+      }
+      if (regenerationDirective) {
+        customRules = `${customRules}\n\n${regenerationDirective}`.trim();
+      }
       if (ticketPreset === "compact") {
         customRules = `${customRules}\nSTRICT FORMAT PRESET: Format Ringkas (Tanpa Steps). Deskripsi tiket HANYA berisi ringkasan kendala dan catatan teknis. DILARANG KERAS menyertakan Langkah-langkah Reproduksi (Steps to Reproduce) atau numbered steps.`.trim();
       } else if (ticketPreset === "technical") {
@@ -1094,7 +1200,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Please connect 9Router Public URL in Settings first");
       return;
     }
-    if (!apiKey && aiProvider !== "9router") {
+    if (!apiKey && aiProvider !== "9router" && aiProvider !== "9router-public") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
     }
@@ -1185,7 +1291,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Please connect 9Router Public URL in Settings first");
       return;
     }
-    if (!apiKey && aiProvider !== "9router") {
+    if (!apiKey && aiProvider !== "9router" && aiProvider !== "9router-public") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
     }
@@ -1197,9 +1303,17 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
     const target = updatedSessions.find((s) => s.id === activeSessionId);
     saveSessionsToStorage(updatedSessions, target);
 
+    const isDisliked = Boolean(
+      pairedAssistant?.feedback === "dislike" ||
+      (pairedAssistant && messageFeedback[pairedAssistant.id] === "dislike")
+    );
+    const regenDirective = isDisliked
+      ? "[USER FEEDBACK - REGENERATION]: The user rejected the previous ticket output (👎). Provide a significantly more thorough, complete, and accurate ticket. Ensure all bug triggers, expected vs actual behaviors, and acceptance criteria are precise."
+      : undefined;
+
     try {
-      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira);
-      toast.success("Regenerated reply");
+      await requestAssistantReply(updatedSessions, activeSessionId, truncatedMessages, apiKey || "", inheritedJira, regenDirective);
+      toast.success(isDisliked ? "Regenerated improved reply" : "Regenerated reply");
     } finally {
       setIsRegenerating(false);
     }
@@ -1235,7 +1349,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Please connect 9Router Public URL in Settings first");
       return;
     }
-    if (!apiKey && aiProvider !== "9router") {
+    if (!apiKey && aiProvider !== "9router" && aiProvider !== "9router-public") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
     }
@@ -1296,7 +1410,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
       toast.error("Please connect 9Router Public URL in Settings first");
       return;
     }
-    if (!apiKey && aiProvider !== "9router") {
+    if (!apiKey && aiProvider !== "9router" && aiProvider !== "9router-public") {
       toast.error(`Please set an API key for ${aiProvider} in Settings`);
       return;
     }
@@ -1318,7 +1432,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
 
   return (
     <div className="flex h-[calc(100vh-6rem)] w-full overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm font-sans">
-      {/* Sessions / History Sidebar — Collapsible */}
+      {/* Sessions / History Sidebar (Collapsible) */}
       <div className={`transition-all duration-300 ease-in-out border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col shrink-0 ${
         showHistorySidebar ? "w-64" : "w-0 overflow-hidden border-r-0"
       }`}>
@@ -1491,7 +1605,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
         </div>
       </div>
 
-      {/* Main Ticket Chat — single column, scrolls independently */}
+      {/* Main Ticket Chat: single column, scrolls independently */}
       <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Top bar with Toggle History */}
         <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between shrink-0">
@@ -1559,7 +1673,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
             messages.map((msg, idx) => (
               <div
                 key={msg.id}
-                className={`flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                className={`group flex gap-2 ${msg.role === "user" ? "justify-end" : "justify-start"}`}
               >
                 {msg.role === "assistant" && (
                   <div className="w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 mt-1 shadow-xs">
@@ -1595,6 +1709,151 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
                     isRegenerating={isRegenerating}
                     isLoading={isLoading}
                   />
+
+                  {/* Bottom row: Timestamp + Hover Action Bar (Matching Image #10 across all chat menus) */}
+                  <div className={`flex items-center gap-2 mt-1 ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    {msg.timestamp && <span className="text-[9px] text-slate-400 block">{msg.timestamp}</span>}
+
+                    {/* Action Bar (ThumbsUp, ThumbsDown, Copy, MoreHorizontal) */}
+                    <div
+                      className={`relative flex items-center gap-0.5 px-1 py-0.5 rounded-lg bg-slate-100/90 dark:bg-slate-800/90 border border-slate-200/80 dark:border-slate-700/80 shadow-xs backdrop-blur-xs transition-all duration-200 ${
+                        activeMenuMsgId === msg.id || messageFeedback[msg.id]
+                          ? "opacity-100 translate-y-0"
+                          : "opacity-0 group-hover:opacity-100 translate-y-0.5 group-hover:translate-y-0"
+                      }`}
+                    >
+                      {msg.role === "assistant" && (
+                        <>
+                          {/* 1. Thumbs Up */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeedback(msg.id, "like")}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              messageFeedback[msg.id] === "like"
+                                ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60"
+                                : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                            }`}
+                            title="Helpful response"
+                          >
+                            <ThumbsUp
+                              className={`w-3.5 h-3.5 ${
+                                messageFeedback[msg.id] === "like" ? "fill-current" : ""
+                              }`}
+                            />
+                          </button>
+
+                          {/* 2. Thumbs Down */}
+                          <button
+                            type="button"
+                            onClick={() => handleToggleFeedback(msg.id, "dislike")}
+                            className={`p-1 rounded-md transition cursor-pointer ${
+                              messageFeedback[msg.id] === "dislike"
+                                ? "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/60"
+                                : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700"
+                            }`}
+                            title="Needs improvement"
+                          >
+                            <ThumbsDown
+                              className={`w-3.5 h-3.5 ${
+                                messageFeedback[msg.id] === "dislike" ? "fill-current" : ""
+                              }`}
+                            />
+                          </button>
+                        </>
+                      )}
+
+                      {/* 3. Copy Button */}
+                      <button
+                        type="button"
+                        onClick={() => handleCopyMessage(msg)}
+                        className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer"
+                        title="Copy message"
+                      >
+                        {copiedMsgId === msg.id ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-500" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
+                      {/* 4. More Options (...) */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveMenuMsgId(activeMenuMsgId === msg.id ? null : msg.id)}
+                          className="p-1 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-white dark:hover:bg-slate-700 transition cursor-pointer"
+                          title="More options"
+                        >
+                          <MoreHorizontal className="w-3.5 h-3.5" />
+                        </button>
+
+                        {/* Dropdown Menu */}
+                        {activeMenuMsgId === msg.id && (
+                          <div
+                            ref={menuRef}
+                            className={`absolute bottom-full mb-1.5 z-40 w-44 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xl py-1 text-xs animate-[fadeIn_0.15s_ease-out] ${
+                              msg.role === "user" ? "right-0" : "left-0"
+                            }`}
+                          >
+                            {msg.role === "assistant" ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuMsgId(null);
+                                  handleRegenerate();
+                                }}
+                                disabled={isRegenerating || isLoading}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition disabled:opacity-50"
+                              >
+                                <RotateCcw className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Regenerate Response</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveMenuMsgId(null);
+                                  setInputText(msg.content);
+                                  if (textareaRef.current) textareaRef.current.focus();
+                                  toast("Prompt loaded into composer", { icon: "✏️" });
+                                }}
+                                className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-slate-400" />
+                                <span>Edit Prompt</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuMsgId(null);
+                                handleCopyMessage(msg, true);
+                              }}
+                              className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-slate-400" />
+                              <span>Copy as Markdown</span>
+                            </button>
+
+                            <div className="my-1 border-t border-slate-100 dark:border-slate-700" />
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setActiveMenuMsgId(null);
+                                handleDeleteMessage(msg.id);
+                              }}
+                              className="w-full px-3 py-1.5 text-left flex items-center gap-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                              <span>Delete Message</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                   {msg.role === "assistant" && idx === messages.length - 1 && !isLoading && (
                     <button
                       type="button"
@@ -1631,7 +1890,7 @@ ${mergedResult.evidence ? `**Evidence:**\n${mergedResult.evidence}` : ""}`;
           <div ref={chatEndRef} />
         </div>
 
-        {/* Input Dock — pinned above draft */}
+        {/* Input Dock: pinned above draft */}
         <div className="shrink-0 px-3 pb-3 pt-2">
           <div className="bg-white dark:bg-slate-800/95 backdrop-blur-md rounded-3xl border border-slate-200 dark:border-slate-700 p-2.5">
             {imagePreview && (

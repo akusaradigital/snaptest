@@ -1,6 +1,6 @@
 "use client";
 
-import { Ticket, Copy, Check, Pencil, Loader2, Share2, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, FileText, MoreHorizontal, RotateCcw, Send, Tag, Link2 } from "lucide-react";
+import { Ticket, Copy, Check, Pencil, Loader2, Share2, Eye, X, ExternalLink, RefreshCw, Printer, AlertCircle, FileSpreadsheet, FileText, MoreHorizontal, RotateCcw, Send, Tag, Link2, ThumbsUp, ThumbsDown } from "lucide-react";
 import { ChatMessage } from "./pages/TicketPage";
 import { useState, useEffect, useRef } from "react";
 import toast from "react-hot-toast";
@@ -142,6 +142,8 @@ export default function TicketChatBubble({
   const [isEditingUserMsg, setIsEditingUserMsg] = useState(false);
   const [userMsgDraft, setUserMsgDraft] = useState(msg.content);
   const [copiedUserMsg, setCopiedUserMsg] = useState(false);
+  const [copiedAssistantMsg, setCopiedAssistantMsg] = useState(false);
+  const [assistantFeedback, setAssistantFeedback] = useState<"like" | "dislike" | null>(null);
 
   useEffect(() => {
     setUserMsgDraft(msg.content);
@@ -570,7 +572,7 @@ export default function TicketChatBubble({
 
       {hasTicket && ticket ? (
         <div className="space-y-3.5 leading-relaxed">
-          {/* Header Status & Key Badges — Minimal & Clean */}
+          {/* Header Status & Key Badges: Minimal & Clean */}
           <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-700/60">
             <div className="flex flex-wrap items-center gap-2">
               {/* Type Badge */}
@@ -627,7 +629,7 @@ export default function TicketChatBubble({
                   ? "bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
                   : "bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
               }`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-blue-500 animate-pulse"}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${isPushed ? "bg-emerald-500" : "bg-blue-500"}`} />
                 {isPushed ? "Pushed" : "Ready to Push"}
               </span>
             </div>
@@ -916,7 +918,7 @@ export default function TicketChatBubble({
               </p>
               <p className="text-slate-500 dark:text-slate-400">
                 <strong>Expected:</strong> {stripStars(ticket.expected_result)}
-                {ticket.actual_result ? ` — Actual: ${stripStars(ticket.actual_result)}` : ""}
+                {ticket.actual_result ? ` · Actual: ${stripStars(ticket.actual_result)}` : ""}
               </p>
             </div>
           ) : (
@@ -1044,7 +1046,7 @@ export default function TicketChatBubble({
           </>
           )}
 
-          {/* Action Bar inside Chat Bubble — Simplified & Grouped */}
+          {/* Action Bar inside Chat Bubble: Simplified & Grouped */}
           {!isEditing && (
           <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
             {/* Left side: Active Push Integrations & Statuses */}
@@ -1431,7 +1433,9 @@ export default function TicketChatBubble({
           </div>
         )
       ) : (
-        <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+        <div className="relative">
+          <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
+        </div>
       )}
 
       {/* Side-by-side Jira issue visual preview modal */}

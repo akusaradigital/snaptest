@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { getDB } from '../../db';
 import { auth } from '@/auth';
 
-// ponytail: same team scope as list endpoint — expand must see teammates' records
+// ponytail: same team scope as list endpoint: expand must see teammates' records
 async function getTeamUserIds(sql: any, userId: string): Promise<string[]> {
   try {
     const teams = await sql`SELECT team_id FROM team_members WHERE user_id = ${userId}`;

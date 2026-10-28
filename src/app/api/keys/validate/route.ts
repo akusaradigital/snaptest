@@ -43,7 +43,12 @@ export async function POST(request: Request) {
         if (apiKey && apiKey !== '9router-local-key') {
           headers['Authorization'] = `Bearer ${apiKey}`;
         }
-        const res = await fetch('http://127.0.0.1:20128/v1/models', { headers });
+        let res: Response;
+        try {
+          res = await fetch('http://127.0.0.1:20128/v1/models', { headers });
+        } catch {
+          res = await fetch('http://localhost:20128/v1/models', { headers });
+        }
         if (res.ok) {
           const data = await res.json();
           models = Array.isArray(data?.data) ? data.data.map((m: any) => m.id).filter(Boolean) : [];
@@ -58,9 +63,10 @@ export async function POST(request: Request) {
       // ponytail: try each model until one responds
       const usage9r = { totalTokens: 0 };
       let lastErr: any = null;
+      const realApiKey = (apiKey && apiKey !== '9router-local-key') ? apiKey : '';
       for (const candidate of models) {
         try {
-          await callLLM(p, candidate, apiKey || '9router-local-key', 'You are a test client. Answer "hi".', 'hi', false, 5, usage9r);
+          await callLLM(p, candidate, realApiKey, 'You are a test client. Answer "hi".', 'hi', false, 5, usage9r);
           return NextResponse.json({
             valid: true,
             message: `9Router is reachable (verified via ${candidate})`,
@@ -106,7 +112,8 @@ export async function POST(request: Request) {
     }
     const usage = { totalTokens: 0 };
     const publicBaseUrl = p === '9router-public' ? (publicInput?.url || '') : undefined;
-    await callLLM(p, testModel, apiKey, 'You are a test client. Answer "hi".', 'hi', false, 5, usage, publicBaseUrl);
+    const keyToUse = (p === '9router' && apiKey === '9router-local-key') ? '' : apiKey;
+    await callLLM(p, testModel, keyToUse, 'You are a test client. Answer "hi".', 'hi', false, 5, usage, publicBaseUrl);
 
     return NextResponse.json({
       valid: true,

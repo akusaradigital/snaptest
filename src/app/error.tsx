@@ -20,7 +20,7 @@ export default function ErrorBoundary({
           <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-24 h-4 bg-slate-200 rounded-full blur-md" />
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-20 h-24 bg-red-50 rounded-2xl border-2 border-red-200 flex flex-col items-center justify-center gap-2">
             <div className="w-12 h-7 bg-slate-800 rounded-lg flex items-center justify-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-red-400" />
               <span className="text-white text-[10px] font-bold">ERR</span>
             </div>
             <div className="flex gap-1.5">

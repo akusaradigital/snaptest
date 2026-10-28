@@ -20,6 +20,7 @@ export async function GET(request: Request) {
     const session = await auth();
     const userId = session?.user?.email;
     if (!userId) return NextResponse.json({ items: [] });
+    if (!process.env.DATABASE_URL?.trim()) return NextResponse.json({ items: [] });
 
     const { searchParams } = new URL(request.url);
     let agentType: string;
@@ -51,6 +52,7 @@ export async function POST(request: Request) {
     const session = await auth();
     const userId = session?.user?.email;
     if (!userId) return NextResponse.json({ detail: 'Unauthorized' }, { status: 401 });
+    if (!process.env.DATABASE_URL?.trim()) return NextResponse.json({ ok: true, cached: true });
 
     let body: unknown;
     try {

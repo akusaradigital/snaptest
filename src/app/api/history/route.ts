@@ -18,7 +18,7 @@ export async function GET(request: Request) {
   try {
     const session = await auth();
     const userId = session?.user?.email;
-    if (!userId) return NextResponse.json({ items: [], count: 0 });
+    if (!userId || !process.env.DATABASE_URL?.trim()) return NextResponse.json({ items: [], count: 0 });
 
     await ensureSchema();
     const { searchParams } = new URL(request.url);

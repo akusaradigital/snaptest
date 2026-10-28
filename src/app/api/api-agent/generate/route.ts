@@ -20,7 +20,8 @@ export async function POST(req: Request) {
       nine_router_public_key,
     } = body;
 
-    if (!input || !input_type || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
+    const is9Router = ai_provider === '9router' || ai_provider === '9router-public';
+    if (!input || !input_type || !ai_provider || !ai_model || (!is9Router && !api_key)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -63,11 +64,23 @@ export async function POST(req: Request) {
     try {
       result = JSON.parse(raw);
     } catch {
-      // Try to extract JSON from markdown code block if direct parse fails
+      // Try to extract JSON from markdown code block or substring if direct parse fails
       const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonMatch) {
-        result = JSON.parse(jsonMatch[1]);
-      } else {
+        try {
+          result = JSON.parse(jsonMatch[1]);
+        } catch {}
+      }
+      if (!result) {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        if (start !== -1 && end > start) {
+          try {
+            result = JSON.parse(raw.slice(start, end + 1));
+          } catch {}
+        }
+      }
+      if (!result) {
         throw new Error('LLM response was not valid JSON');
       }
     }

@@ -1,8 +1,11 @@
 "use client";
-import { useDashboard } from "@/components/DashboardContext";
-import PlannerPage from "@/components/pages/PlannerPage";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Page() {
-  const { aiProvider, aiModel } = useDashboard();
-  return <PlannerPage aiProvider={aiProvider} aiModel={aiModel} />;
+  const router = useRouter();
+  useEffect(() => {
+    router.replace("/generate?tab=planner");
+  }, [router]);
+  return null;
 }

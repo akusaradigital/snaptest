@@ -45,7 +45,7 @@ function InnerLayout({ children }: { children: React.ReactNode }) {
             </Suspense>
           </div>
         </div>
-        <div className={`flex-1 min-h-0 px-4 sm:px-6 lg:px-8 py-6 lg:py-8 ${activePage === "ticket" ? "overflow-hidden" : "overflow-y-auto"}`}>
+        <div className={`flex-1 min-h-0 px-4 sm:px-6 lg:px-8 ${["ticket", "generate", "report", "planner", "data", "api-agent", "dashboard"].includes(activePage) ? "py-4 overflow-hidden h-full flex flex-col" : "py-6 lg:py-8 overflow-y-auto"}`}>
           {children}
         </div>
       </main>

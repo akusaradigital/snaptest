@@ -5,7 +5,7 @@ import { Toaster } from "react-hot-toast";
 import Providers from "@/components/Providers";
 import DbHeartbeat from "@/components/DbHeartbeat";
 
-// Self-hosted via next/font — no render-blocking Google Fonts request in prod.
+// Self-hosted via next/font: no render-blocking Google Fonts request in prod.
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",

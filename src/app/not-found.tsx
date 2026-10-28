@@ -14,7 +14,7 @@ export default function NotFound() {
           <div className="absolute bottom-4 left-1/2 -translate-x-1/2 w-20 h-24 bg-indigo-100 rounded-2xl border-2 border-indigo-200 flex flex-col items-center justify-center gap-2">
             {/* Screen */}
             <div className="w-12 h-7 bg-slate-800 rounded-lg flex items-center justify-center gap-1.5">
-              <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+              <div className="w-2 h-2 rounded-full bg-red-400" />
               <span className="text-white text-[10px] font-bold">404</span>
             </div>
             {/* Buttons */}

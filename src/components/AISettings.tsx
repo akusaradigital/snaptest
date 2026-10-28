@@ -189,9 +189,9 @@ export default function AISettings({
         for (const [provider, status] of Object.entries(modelsData.status)) {
           if (updated[provider]) {
             if (provider === '9router') {
-              // 9router is connected only if explicit key stored or server connected with valid setup
+              // 9router is connected if explicit key stored or server ping detected local 9router
               const hasKey = !!stored['9router'];
-              const isConn = hasKey || (status === "connected" && prev['9router']?.status === "connected");
+              const isConn = hasKey || status === "connected";
               updated[provider] = {
                 ...updated[provider],
                 status: isConn ? "connected" : "disconnected",
@@ -232,6 +232,11 @@ export default function AISettings({
       ? `${state.urlInput || ''} ${state.keyInput || ''}`.trim()
       : state.keyInput.trim();
     if (!input) {
+      if (provider === '9router') {
+        // Local 9Router does not require an API key by default
+        handleCheck9Router();
+        return;
+      }
       toast.error("Please enter an API key first");
       return;
     }
@@ -898,7 +903,7 @@ export default function AISettings({
           }
         </span>
         {(!selectedProvider || !selectedModel) ? (
-          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+          <span className="w-2 h-2 rounded-full bg-amber-500" title="Provider or model unselected"></span>
         ) : providers[selectedProvider]?.status === "connected" ? (
           <span className="w-2 h-2 rounded-full bg-emerald-500" title="Connected"></span>
         ) : providers[selectedProvider]?.status === "has_key" ? (
@@ -963,7 +968,58 @@ export default function AISettings({
                     </div>
 
                     <div className="flex items-center gap-1">
-                      {state.status === "connected" ? (
+                      {provider === '9router' ? (
+                        state.status === "connected" ? (
+                          <>
+                            {!isActive && (
+                              <button
+                                type="button"
+                                onClick={() => handleUseProvider(provider)}
+                                className="px-2.5 py-1 text-xs font-medium text-indigo-600 bg-indigo-50 rounded hover:bg-indigo-100 transition"
+                              >
+                                Use
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleCheck9Router}
+                              disabled={state.validating}
+                              className="p-1 rounded hover:bg-slate-100 transition"
+                              title="Refresh 9Router status"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${state.validating ? "animate-spin" : ""}`} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRevoke(provider)}
+                              className="p-1 rounded hover:bg-red-50 transition"
+                              title="Revoke / disconnect 9Router"
+                            >
+                              <X className="w-3.5 h-3.5 text-red-400" />
+                            </button>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={handleCheck9Router}
+                              disabled={state.validating}
+                              className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded text-slate-600 bg-slate-100 hover:bg-slate-200 transition"
+                            >
+                              <RefreshCw className={`w-3 h-3 ${state.validating ? "animate-spin" : ""}`} />
+                              Check Connection
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleAddKey(provider)}
+                              className={`p-1 rounded transition ${state.showInput ? "hover:bg-red-50 text-red-500" : "hover:bg-slate-100 text-slate-500"}`}
+                              title={state.showInput ? "Cancel" : "Add custom key (optional)"}
+                            >
+                              {state.showInput ? <X className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        )
+                      ) : state.status === "connected" ? (
                         <>
                           {!isActive && (
                             <button
@@ -976,7 +1032,7 @@ export default function AISettings({
                           )}
                           <button
                             type="button"
-                            onClick={provider === '9router' ? handleCheck9Router : () => handlePingProvider(provider)}
+                            onClick={() => handlePingProvider(provider)}
                             disabled={state.validating}
                             className="p-1 rounded hover:bg-slate-100 transition"
                             title={provider === '9router-public' ? "Refresh user models" : "Check connection"}
@@ -1005,7 +1061,7 @@ export default function AISettings({
                           {state.status === "has_key" && (
                             <button
                               type="button"
-                              onClick={provider === '9router' ? handleCheck9Router : () => handlePingProvider(provider)}
+                              onClick={() => handlePingProvider(provider)}
                               disabled={state.validating}
                               className="p-1 rounded hover:bg-slate-100 transition"
                               title={provider === '9router-public' ? "Refresh user models" : "Check connection"}

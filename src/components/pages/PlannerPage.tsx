@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from 'react';
-import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles, FileSpreadsheet } from 'lucide-react';
+import { BookOpen, Download, Loader2, Send, Clock, PlusCircle, Pencil, Trash2, Check, X, Sparkles, FileSpreadsheet, PanelLeft, Search } from 'lucide-react';
 import { getAiRequestPayload } from '@/lib/keys';
 import { getEffectiveAiRules, rememberAiRule } from '@/lib/aiMemory';
 import toast from 'react-hot-toast';
@@ -64,19 +64,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PlannerResult | null>(null);
   const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const historyRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!historyOpen) return;
-    const onClickOutside = (e: MouseEvent) => {
-      if (historyRef.current && !historyRef.current.contains(e.target as Node)) {
-        setHistoryOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
-  }, [historyOpen]);
+  const [showHistorySidebar, setShowHistorySidebar] = useState(true);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -263,7 +251,7 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
     const existing = sessions.find(s => s.id === id);
     if (!existing) return;
 
-    // Renaming a session we haven't loaded the full result for yet — fetch it first
+    // Renaming a session we haven't loaded the full result for yet; fetch it first
     // so the rename POST (which re-saves the whole record) doesn't wipe its data.
     let base = existing;
     if (!base.loaded && id !== activeSessionId) {
@@ -284,7 +272,6 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
 
   const selectSession = async (s: SessionItem) => {
     setActiveSessionId(s.id);
-    setHistoryOpen(false);
     if (s.loaded) {
       setInput(s.input || '');
       setResult(s.result || null);
@@ -323,6 +310,8 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
       toast.error('Failed to load session');
     }
   };
+
+  const activeSession = sessions.find(s => s.id === activeSessionId);
 
   const filteredSessions = sessions.filter(s =>
     !sessionSearch || s.title.toLowerCase().includes(sessionSearch.toLowerCase())
@@ -433,228 +422,287 @@ export default function PlannerPage({ aiProvider, aiModel }: PlannerPageProps) {
   };
 
   return (
-    <div className="flex h-[calc(100vh-140px)]">
-      {/* ── LEFT SIDEBAR: narrow rail that expands into the full drawer on hover ── */}
-      <div ref={historyRef} className="relative shrink-0 h-full z-20">
-        <div
-          onClick={() => setHistoryOpen((o) => !o)}
-          className="w-12 h-full border-r border-slate-200 dark:border-slate-700 flex flex-col items-center py-4 gap-2 cursor-pointer"
-        >
+    <div className="flex h-full w-full overflow-hidden rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm font-sans">
+      {/* Sessions / History Sidebar (Collapsible) */}
+      <div className={`transition-all duration-300 ease-in-out border-r border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-col shrink-0 ${
+        showHistorySidebar ? "w-64" : "w-0 overflow-hidden border-r-0"
+      }`}>
+        <div className="p-3 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
+          <span className="text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5 text-slate-400" />
+            Test Plans ({sessions.length})
+          </span>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }}
-            className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 transition"
+            onClick={() => { setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }}
+            className="p-1.5 rounded-lg text-slate-600 dark:text-slate-400 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
             title="New Test Plan"
           >
             <PlusCircle className="w-4 h-4" />
           </button>
-          <div className="w-6 h-px bg-slate-200 dark:bg-slate-700 my-1" />
-          <div className="flex flex-col items-center gap-1 text-slate-400" title={`${sessions.length} saved sessions`}>
-            <Clock className="w-4 h-4" />
-            <span className="text-[10px] font-semibold">{sessions.length}</span>
-          </div>
         </div>
 
-        <div className={`absolute left-0 top-0 w-[280px] h-full border-r border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl p-4 flex flex-col overflow-hidden transition-all duration-150 ${historyOpen ? "opacity-100 visible translate-x-0" : "opacity-0 invisible -translate-x-1 pointer-events-none"}`}>
-          <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5 mb-3">
-            <Clock className="w-3.5 h-3.5" /> CHAT HISTORY ({sessions.length})
-          </h3>
-          <button type="button" onClick={() => { setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }} className="w-full btn-primary text-xs flex items-center justify-center gap-2 py-2 mb-3">
-            <PlusCircle className="w-4 h-4" /> <span>New Test Plan</span>
-          </button>
-
-          {/* Session search */}
-          {sessions.length > 0 && (
-            <input
-              type="text"
-              value={sessionSearch}
-              onChange={e => setSessionSearch(e.target.value)}
-              placeholder="Search sessions..."
-              className="w-full text-xs px-3 py-1.5 mb-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent focus:outline-none focus:ring-1 focus:ring-indigo-400"
-            />
-          )}
-
-          <div className="flex-1 min-h-0 overflow-y-auto space-y-1.5 pr-1">
-            {filteredSessions.length === 0 ? (
-              <p className="text-xs text-slate-400 text-center py-6">No saved history yet.</p>
-            ) : (
-              filteredSessions.map(s => (
-                <div
-                  key={s.id}
-                  onClick={() => renamingId !== s.id && selectSession(s)}
-                  className={`group flex items-center gap-1 px-2 py-1.5 rounded-lg cursor-pointer text-xs ${
-                    s.id === activeSessionId
-                      ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold"
-                      : "hover:bg-slate-50 dark:hover:bg-slate-700/50"
-                  }`}
-                >
-                  {renamingId === s.id ? (
-                    <div className="flex items-center gap-1 flex-1 min-w-0" onClick={e => e.stopPropagation()}>
-                      <input
-                        type="text"
-                        value={renameValue}
-                        onChange={e => setRenameValue(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter') commitRename(s.id); if (e.key === 'Escape') setRenamingId(null); }}
-                        className="flex-1 text-xs px-1 py-0.5 border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white"
-                        autoFocus
-                      />
-                      <button onClick={() => commitRename(s.id)} className="p-0.5 text-emerald-600 hover:text-emerald-700"><Check className="w-3 h-3" /></button>
-                      <button onClick={() => setRenamingId(null)} className="p-0.5 text-slate-400 hover:text-slate-600"><X className="w-3 h-3" /></button>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="flex-1 truncate text-slate-700 dark:text-slate-300">{s.title}</span>
-                      <div className="hidden group-hover:flex items-center gap-0.5">
-                        <button onClick={(e) => { e.stopPropagation(); startRename(s); }} className="p-0.5 rounded text-slate-400 hover:text-slate-600"><Pencil className="w-3 h-3" /></button>
-                        {deleteConfirmId === s.id ? (
-                          <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} className="p-0.5 rounded text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
-                        ) : (
-                          <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }} className="p-0.5 rounded text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))
-            )}
+        {/* Search */}
+        {sessions.length > 0 && (
+          <div className="p-2 border-b border-slate-200/60 dark:border-slate-800/60 shrink-0">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+              <input
+                type="text"
+                value={sessionSearch}
+                onChange={e => setSessionSearch(e.target.value)}
+                placeholder="Search plans..."
+                className="w-full pl-8 pr-2 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
           </div>
+        )}
+
+        {/* Sessions list */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1 scrollbar-thin">
+          {filteredSessions.length === 0 ? (
+            <p className="text-xs text-slate-400 text-center py-6">No saved history yet.</p>
+          ) : (
+            filteredSessions.map(s => (
+              <div
+                key={s.id}
+                onClick={() => renamingId !== s.id && selectSession(s)}
+                className={`group flex items-center gap-1.5 px-2.5 py-2 rounded-xl cursor-pointer text-xs transition ${
+                  s.id === activeSessionId
+                    ? "bg-indigo-50 dark:bg-indigo-900/30 text-indigo-900 dark:text-indigo-200 font-semibold"
+                    : "hover:bg-slate-100/70 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300"
+                }`}
+              >
+                {renamingId === s.id ? (
+                  <div className="flex items-center gap-1 flex-1 min-w-0" onClick={e => e.stopPropagation()}>
+                    <input
+                      type="text"
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') commitRename(s.id); if (e.key === 'Escape') setRenamingId(null); }}
+                      className="flex-1 text-xs px-1 py-0.5 border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-400 bg-white dark:bg-slate-800"
+                      autoFocus
+                    />
+                    <button onClick={() => commitRename(s.id)} className="p-0.5 text-emerald-600 hover:text-emerald-700"><Check className="w-3 h-3" /></button>
+                    <button onClick={() => setRenamingId(null)} className="p-0.5 text-slate-400 hover:text-slate-600"><X className="w-3 h-3" /></button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1 truncate text-slate-700 dark:text-slate-300">{s.title}</span>
+                    <div className="hidden group-hover:flex items-center gap-0.5 shrink-0">
+                      <button onClick={(e) => { e.stopPropagation(); startRename(s); }} className="p-0.5 rounded text-slate-400 hover:text-slate-600"><Pencil className="w-3 h-3" /></button>
+                      {deleteConfirmId === s.id ? (
+                        <button onClick={(e) => { e.stopPropagation(); deleteSession(s.id); }} className="p-0.5 rounded text-red-500 hover:text-red-700"><Trash2 className="w-3 h-3" /></button>
+                      ) : (
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteConfirmId(s.id); }} className="p-0.5 rounded text-slate-400 hover:text-red-500"><Trash2 className="w-3 h-3" /></button>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
-      {/* ── MAIN COLUMN: Composer → Results ── */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden animate-[fadeIn_0.3s_ease-out]">
-        {/* Composer */}
-        <div className="shrink-0 border-b border-slate-100 dark:border-slate-700 px-4 py-3">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Requirement Input</span>
+      {/* ── MAIN COLUMN: Content → Pinned Dock ── */}
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Top bar with Toggle History */}
+        <div className="p-2.5 px-3 border-b border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <button
+              type="button"
+              onClick={() => setShowHistorySidebar(!showHistorySidebar)}
+              className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition shrink-0"
+              title={showHistorySidebar ? "Hide History" : "Show History"}
+            >
+              <PanelLeft className="w-4 h-4" />
+            </button>
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 truncate max-w-sm">
+              {activeSession ? activeSession.title : "New Test Plan"}
+            </span>
           </div>
-          <form onSubmit={(e) => { e.preventDefault(); runGenerate(input, () => setInput('')); }} className="flex flex-col gap-2">
-            <textarea
-              rows={5}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => { if (((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey))) { e.preventDefault(); runGenerate(input, () => setInput('')); } }}
-              placeholder="Paste a PRD, User Story, Acceptance Criteria, Gherkin, or plain text..."
-              disabled={loading}
-              className="w-full text-sm leading-relaxed px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-y min-h-[96px]"
-            />
-            <div className="flex items-center justify-between">
-              <button type="button" onClick={() => setInput('As a user I can login with email and password')} className="text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 font-medium transition">
-                Use example
-              </button>
-              <button type="submit" disabled={loading || !input.trim()} className="btn-primary text-xs px-3.5 py-2 flex items-center gap-1.5 disabled:opacity-40">
-                {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                {loading ? 'Generating...' : 'Generate Plan'}
-              </button>
-            </div>
-          </form>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => { setActiveSessionId(null); setResult(null); setInput(''); setRefine(''); }}
+              className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition font-medium border border-slate-200 dark:border-slate-700"
+            >
+              <PlusCircle className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>New Plan</span>
+            </button>
+          </div>
         </div>
 
-        {/* Results */}
-        <div className="flex-1 min-h-0 flex flex-col">
+        {/* Scrollable Workspace: Centered Empty State when New, or Test Matrix when Result */}
+        <div className="flex-1 min-h-0 overflow-y-auto">
           {result ? (
-            <>
-              <div className="flex-1 overflow-auto min-h-0">
-                {/* Summary strip */}
-                <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{result.feature_name}</span>
-                  <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700 uppercase tracking-wide">{result.detected_format}</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{result.coverage_summary}</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{result.test_matrix.length} test cases</span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400">{result.total_effort_hours}h estimated effort</span>
-                </div>
-
-                {/* Toolbar */}
-                <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
-                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Test Matrix</span>
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setSheetsModalOpen(true)}
-                      className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
-                    >
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                      <span>Spreadsheet</span>
-                    </button>
-                    <button type="button" onClick={downloadCsv} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> CSV</button>
-                    <button type="button" onClick={downloadXlsx} className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> XLSX</button>
-                  </div>
-                </div>
-
-                {/* Matrix */}
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[880px] text-sm text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200">
-                        <th className="p-3 font-semibold text-slate-600">#</th>
-                        <th className="p-3 font-semibold text-slate-600">Category</th>
-                        <th className="p-3 font-semibold text-slate-600">Scenario</th>
-                        <th className="p-3 font-semibold text-slate-600">Expected Result</th>
-                        <th className="p-3 font-semibold text-slate-600">Priority</th>
-                        <th className="p-3 font-semibold text-slate-600">Effort</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.test_matrix.map(tc => (
-                        <tr key={tc.id} className="border-b border-slate-100 hover:bg-slate-50/50">
-                          <td className="p-3 font-mono text-xs text-slate-500">{tc.id}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${CATEGORY_COLORS[tc.category] || 'bg-slate-100 text-slate-700'}`}>
-                              {tc.category}
-                            </span>
-                          </td>
-                          <td className="p-3">
-                            <div className="font-medium text-slate-800">{tc.scenario}</div>
-                          </td>
-                          <td className="p-3 text-xs text-slate-600">{tc.expected}</td>
-                          <td className="p-3">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${PRIORITY_COLORS[tc.priority] || 'bg-slate-100 text-slate-700'}`}>
-                              {tc.priority}
-                            </span>
-                          </td>
-                          <td className="p-3 text-xs text-slate-500">{tc.effort_hours}h</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            <div className="flex flex-col min-h-full">
+              {/* Summary strip */}
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-700 flex flex-wrap items-center gap-x-3 gap-y-1 bg-slate-50/30 dark:bg-slate-900/30">
+                <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{result.feature_name}</span>
+                <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-100 text-indigo-700 uppercase tracking-wide">{result.detected_format}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{result.coverage_summary}</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{result.test_matrix.length} test cases</span>
+                <span className="text-xs text-slate-500 dark:text-slate-400">{result.total_effort_hours}h estimated effort</span>
               </div>
 
-              {/* Compact refine input */}
-              <div className="shrink-0 border-t border-slate-100 dark:border-slate-700 px-4 py-3 bg-slate-50/40 dark:bg-slate-900/40">
-                <form onSubmit={(e) => { e.preventDefault(); runGenerate(refine, () => setRefine('')); }} className="flex items-end gap-2">
-                  <textarea
-                    rows={2}
-                    value={refine}
-                    onChange={(e) => setRefine(e.target.value)}
-                    onKeyDown={(e) => { if (((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey))) { e.preventDefault(); runGenerate(refine, () => setRefine('')); } }}
-                    placeholder="Refine plan — e.g. 'Add edge cases for empty and invalid input'..."
-                    disabled={loading}
-                    className="flex-1 text-xs leading-relaxed px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-400 resize-none max-h-32"
-                  />
-                  <button type="submit" disabled={loading || !refine.trim()} className="p-2 rounded-full bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition shrink-0" title="Refine (Enter)">
-                    <Send className="w-3.5 h-3.5" />
+              {/* Toolbar */}
+              <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-700 flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Test Matrix</span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSheetsModalOpen(true)}
+                    className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    <span>Spreadsheet</span>
                   </button>
-                </form>
-                <p className="text-[10px] text-slate-400 mt-1.5 text-center">AI Agent can make mistakes. Check important info.</p>
+                  <button type="button" onClick={downloadCsv} className="btn-secondary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> CSV</button>
+                  <button type="button" onClick={downloadXlsx} className="btn-primary text-xs px-2.5 py-1.5 flex gap-1 items-center"><Download className="w-3.5 h-3.5" /> XLSX</button>
+                </div>
               </div>
-            </>
+
+              {/* Matrix Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[880px] text-sm text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="p-3 font-semibold text-slate-600">#</th>
+                      <th className="p-3 font-semibold text-slate-600">Category</th>
+                      <th className="p-3 font-semibold text-slate-600">Scenario</th>
+                      <th className="p-3 font-semibold text-slate-600">Expected Result</th>
+                      <th className="p-3 font-semibold text-slate-600">Priority</th>
+                      <th className="p-3 font-semibold text-slate-600">Effort</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.test_matrix.map(tc => (
+                      <tr key={tc.id} className="border-b border-slate-100 hover:bg-slate-50/50">
+                        <td className="p-3 font-mono text-xs text-slate-500">{tc.id}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${CATEGORY_COLORS[tc.category] || 'bg-slate-100 text-slate-700'}`}>
+                            {tc.category}
+                          </span>
+                        </td>
+                        <td className="p-3">
+                          <div className="font-medium text-slate-800">{tc.scenario}</div>
+                        </td>
+                        <td className="p-3 text-xs text-slate-600">{tc.expected}</td>
+                        <td className="p-3">
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${PRIORITY_COLORS[tc.priority] || 'bg-slate-100 text-slate-700'}`}>
+                            {tc.priority}
+                          </span>
+                        </td>
+                        <td className="p-3 text-xs text-slate-500">{tc.effort_hours}h</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-4">
+            <div className="h-full flex flex-col items-center justify-center text-center p-6">
               {loading ? (
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />
-                  Analyzing document and building matrix...
+                  <span>Analyzing document and synthesizing test matrix...</span>
                 </div>
               ) : (
-                <>
-                  <BookOpen className="w-10 h-10 text-indigo-500 mb-3 opacity-80" />
-                  <h3 className="text-sm font-semibold text-slate-800 dark:text-slate-200 mb-1">Test Planner Workspace</h3>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">Paste a PRD, User Story, Acceptance Criteria, Gherkin, or plain text above and click Generate Plan. The test matrix will appear here.</p>
-                </>
+                <div className="max-w-md flex flex-col items-center">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 flex items-center justify-center mb-3 text-indigo-600 dark:text-indigo-400">
+                    <BookOpen className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-semibold text-slate-800 dark:text-slate-200 mb-1.5">
+                    Test Planner Workspace
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4 leading-relaxed">
+                    Paste a PRD, User Story, Acceptance Criteria, Gherkin, or plain text below to generate a structured test matrix with categories, priority, and effort estimation.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setInput('As a user I can login with email and password')}
+                    className="text-xs px-3 py-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-indigo-300 hover:text-indigo-600 transition shadow-xs"
+                  >
+                    Example: User Login with Email &amp; Password
+                  </button>
+                </div>
               )}
             </div>
           )}
+        </div>
+
+        {/* ── Bottom Docked Input Composer ── */}
+        <div className="shrink-0 px-3 pb-3 pt-2">
+          <div className="bg-white dark:bg-slate-800/95 backdrop-blur-md rounded-2xl border border-slate-200 dark:border-slate-700 p-2.5 shadow-sm">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (result) {
+                  if (!refine.trim() || loading) return;
+                  runGenerate(refine, () => setRefine(''));
+                } else {
+                  if (!input.trim() || loading) return;
+                  runGenerate(input, () => setInput(''));
+                }
+              }}
+              className="flex flex-col gap-2"
+            >
+              <textarea
+                rows={result ? 2 : 3}
+                value={result ? refine : input}
+                onChange={(e) => (result ? setRefine(e.target.value) : setInput(e.target.value))}
+                onKeyDown={(e) => {
+                  if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey)) || (e.key === 'Enter' && !e.shiftKey)) {
+                    e.preventDefault();
+                    if (result) {
+                      if (!refine.trim() || loading) return;
+                      runGenerate(refine, () => setRefine(''));
+                    } else {
+                      if (!input.trim() || loading) return;
+                      runGenerate(input, () => setInput(''));
+                    }
+                  }
+                }}
+                placeholder={
+                  result
+                    ? "Refine plan, e.g. 'Add edge cases for invalid tokens or network timeouts'..."
+                    : "Paste a PRD, User Story, Acceptance Criteria, Gherkin, or plain text..."
+                }
+                disabled={loading}
+                className="w-full text-xs leading-relaxed px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900/50 text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none max-h-36"
+              />
+              <div className="flex items-center justify-between">
+                {!result ? (
+                  <button
+                    type="button"
+                    onClick={() => setInput('As a user I can login with email and password')}
+                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                  >
+                    Use example
+                  </button>
+                ) : (
+                  <span className="text-[10px] text-slate-400">AI Agent can make mistakes. Press Enter to refine.</span>
+                )}
+                <button
+                  type="submit"
+                  disabled={loading || !(result ? refine.trim() : input.trim())}
+                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-40 transition flex items-center gap-1.5 text-xs font-semibold shadow-xs"
+                >
+                  {loading ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : result ? (
+                    <Send className="w-3.5 h-3.5" />
+                  ) : (
+                    <Sparkles className="w-3.5 h-3.5" />
+                  )}
+                  <span>{loading ? 'Generating...' : result ? 'Refine Plan' : 'Generate Plan'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
 

@@ -19,7 +19,8 @@ export async function POST(req: Request) {
       nine_router_public_key,
     } = body;
 
-    if (!input || !ai_provider || !ai_model || (ai_provider !== '9router-public' && !api_key)) {
+    const is9Router = ai_provider === '9router' || ai_provider === '9router-public';
+    if (!input || !ai_provider || !ai_model || (!is9Router && !api_key)) {
       return NextResponse.json(
         { error: 'Missing required fields' },
         { status: 400 }
@@ -29,7 +30,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: '9Router Public URL is required' }, { status: 400 });
     }
 
-    const systemPrompt = `You are a senior QA Engineer. The user will give you a document (PRD, User Story, Acceptance Criteria, Gherkin, Feature Description, or plain text). You MUST auto-detect the document format yourself — do NOT ask the user what format it is.
+    const systemPrompt = `You are a senior QA Engineer. The user will give you a document (PRD, User Story, Acceptance Criteria, Gherkin, Feature Description, or plain text). You MUST auto-detect the document format yourself; do NOT ask the user what format it is.
 
 Return ONLY a valid JSON object with this structure:
 {
@@ -72,8 +73,20 @@ ${custom_rules}
     } catch {
       const jsonMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonMatch) {
-        result = JSON.parse(jsonMatch[1]);
-      } else {
+        try {
+          result = JSON.parse(jsonMatch[1]);
+        } catch {}
+      }
+      if (!result) {
+        const start = raw.indexOf('{');
+        const end = raw.lastIndexOf('}');
+        if (start !== -1 && end > start) {
+          try {
+            result = JSON.parse(raw.slice(start, end + 1));
+          } catch {}
+        }
+      }
+      if (!result) {
         throw new Error('LLM response was not valid JSON');
       }
     }

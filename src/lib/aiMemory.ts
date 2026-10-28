@@ -74,3 +74,25 @@ export function rememberAiRule(
     return false;
   }
 }
+
+export function buildFeedbackDirectives(
+  messages: Array<{ role: string; feedback?: "like" | "dislike" | null }>
+): string {
+  if (!messages || messages.length === 0) return "";
+  const assistantMsgs = messages.filter((m) => m.role === "assistant");
+  const hasDislike = assistantMsgs.some((m) => m.feedback === "dislike");
+  const hasLike = assistantMsgs.some((m) => m.feedback === "like");
+
+  const directives: string[] = [];
+  if (hasDislike) {
+    directives.push(
+      "[USER FEEDBACK - QUALITY IMPROVEMENT]: The user previously marked an assistant response as unsatisfactory (👎). Do NOT repeat shallow test steps, vague assertions, or generic placeholders. Strive for higher accuracy, comprehensive edge cases, clear step-by-step logic, and robust details."
+    );
+  }
+  if (hasLike) {
+    directives.push(
+      "[USER FEEDBACK - PREFERRED QUALITY]: The user gave positive feedback (👍) to earlier responses. Maintain the thoroughness, clear structure, and high-quality formatting."
+    );
+  }
+  return directives.join("\n\n");
+}
