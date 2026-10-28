@@ -10,8 +10,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping Neon (via app health)
-        run: curl -fsS --max-time 20 "${{ secrets.APP_URL }}/api/health" || true
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+        run: |
+          if [ -n "$APP_URL" ]; then
+            curl -fsS --max-time 20 "$APP_URL/api/health" || true
+          fi
 
       - name: Ping Railway crawler
-        if: ${{ secrets.CRAWLER_URL != '' }}
-        run: curl -fsS --max-time 20 "${{ secrets.CRAWLER_URL }}/health" || true
+        env:
+          CRAWLER_URL: ${{ secrets.CRAWLER_URL }}
+        run: |
+          if [ -n "$CRAWLER_URL" ]; then
+            curl -fsS --max-time 20 "$CRAWLER_URL/health" || true
+          fi
